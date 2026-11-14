@@ -193,3 +193,87 @@ Doctor and admin. The reference rows, including `rd_confirm` and `source_url`. R
 ### `GET /health`
 
 No JWT. `{ "ok": true }`.
+
+## Backend implementation clarifications (2026-11-14)
+
+Existing routes and fields above are retained. Every request model rejects extra fields,
+including caller-supplied verdicts, colors, tiers, or condition booleans. Enrollment and
+reissue return the once-only floor secret as `token`; enrollment also returns `warnings`.
+Profile responses never return `token`. Errors always use `{error,message}`.
+
+Session UUIDs are cryptographically random bearer credentials as specified above. Keep them
+out of URLs shared with other people, analytics, logs, and persistent browser storage.
+Expired/closed/queued sessions cannot scan, mutate carts, or check out (`409 session_inactive`).
+A session GET accepts queued sessions; closed/expired returns 409. Unknown UUID returns 404.
+Revoking or reissuing a card invalidates outstanding sessions. Profile changes update both
+active and queued sessions. Disabling an account prevents token use and arrival.
+
+`POST /cart/lines` increments quantity by one; DELETE removes the entire product line.
+Adding beyond current eligible stock returns `409 out_of_stock`; carts do not reserve stock.
+Checkout returns an array of inserted ledger rows, closes the session, and promotes the queue.
+An empty cart returns `409 empty_cart`. No clinical override is supported.
+
+`GET /floor/board` returns `{active, queued, queue:[{session_id,status,tier_id,queued_at}]}`.
+Client and user creation return 201. Mutations without another documented result return
+`{ok:true}`. `GET /clients`, `/admin/users`, `/cart`, `/lots`, `/rules`, `/me/visits`, and
+`/reports/dispensed` return arrays.
+
+### Approved safety correction to golden examples
+
+The written missing-allergen-evidence rule takes precedence over three golden green cells,
+as confirmed by the project owner on 2026-11-14. Asha/banana, Helen/banana, and Helen/orange_juice
+return **unknown**, because those products have neither ingredients nor allergen tags.
+The original golden file is unchanged. The other 27 cells match it exactly. Red and yellow
+votes retain their documented precedence; no unsafe expectation was relaxed to green.
+
+### `POST /scan/image`
+
+No JWT. Multipart fields: `session_id` (UUID bearer credential) and `image` (JPEG, PNG, WebP;
+maximum 8 MB and 12 megapixels). A single recognized barcode in the catalog returns the
+ordinary scan result plus `recognition:"barcode"` and `review_required:false`.
+
+Unknown or ambiguous identity returns `verdict:"unknown"`, `product:null`, `reasons:[]`,
+`barcodes`, `recognition` (`extracted`, `unreadable`, or `unavailable`), `extraction`,
+`external_candidate`, `catalog_candidates` (literal name matches, never automatic identity confirmation),
+and `review_required:true`. Extraction includes raw OCR text,
+confidence, warnings, ingredient text, serving grams, and nullable nutrients. External
+candidates carry source provenance. Neither OCR nor external candidates alter verified
+records or carts. Staff must resolve identity/data before a product can be dispensed.
+Unavailable OCR is explicitly labeled; it is never represented as successful extraction.
+Invalid images return 422. No legal names, phones, or ICD codes enter OCR requests.
+
+### `POST /recommendations`
+
+No JWT. Body `{session_id}`. Returns `{recommendations,recipes,mode,model,review_required}`.
+`mode` is `ollama` only after actual inference and validation; otherwise
+`deterministic_fallback`. Fallback has `model:null` and no generated recipes.
+Only green products with serving data and positive eligible stock are recommendation candidates.
+Each recommendation includes `product_id`, `name`, `suggested_quantity`, `quantity_unit:"package"`,
+`reason`, authoritative rule `reasons`, and `location`. Package quantities are not clinical
+portion prescriptions. Yellow products remain cart-eligible but are not AI candidates.
+
+Recipe objects contain `name`, `ingredients` (the same product/quantity shape), `instructions`,
+and `missing_ingredients` (the same shape with `available:true`). Recipes use cart products;
+missing ingredients are checked against actual stock. Model output is restricted to product
+IDs, package quantities, and preparation operations. Server-rendered instructions prevent
+unvalidated free-text ingredients or medical claims. No claim of aggregate daily nutrient
+safety is made. Clinical flags, session status, cart and stock are rechecked after inference.
+
+### Catalog and receiving additions
+
+- `GET /products?q=&limit=50`: doctor, staff, admin. Catalog rows with source and eligible stock;
+  limit 1–200. Nutrients are per stated serving. Nullable `calories_kcal`, `protein_g`, `fat_g`,
+  and `sugar_g` are additive fields. Existing schema columns and rule thresholds are unchanged.
+- `GET /products/search-external?q=`: doctor, staff, admin. USDA candidates `{fdc_id,name,data_type}`.
+  Requires configured FDC key; 503 `nutrition_unavailable` on missing credentials/upstream failure.
+- `POST /products/import`: staff/admin. Body exactly one of `{barcode}` or `{fdc_id}`.
+  Imports a source-attributed catalog record; existing records are not overwritten. Returns
+  product row (201). Does not create stock. 404 for absent product; 503 for source failure.
+- `GET /inventory`: staff/admin. Bin rows plus `stock`, `low_stock`, `expired_units`,
+  `expiring_units`. Counts exclude expired stock from availability.
+- `POST /lots`: staff/admin. `{product_id,bin_id,grant_id,arrived_on,expires_on,qty}`.
+  Positive integer quantity, expiration after arrival, and bin must match product. Returns
+  the inserted lot (201). No existing lot or ledger quantity is rewritten.
+
+All API responses use `Cache-Control:no-store`. Production CORS origins are explicit configuration.
+The API has no public signup, stock deletion, ledger deletion, or verdict override endpoint.
