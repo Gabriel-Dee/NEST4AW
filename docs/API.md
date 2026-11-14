@@ -32,7 +32,7 @@ Any signed-in role. Returns `{ "id", "email", "role" }`.
 
 ### `POST /auth/change-password`
 
-Any signed-in role. Body: `{ "current_password", "new_password" }`. New password length at least 8.
+Any signed-in role. Body: `{ "current_password", "new_password" }`. New password length at least 8. Success returns `{ "ok": true }`. A wrong current password is `401`. Create-client and create-user passwords use the same length rule.
 
 ### `POST /admin/users`
 
@@ -67,7 +67,7 @@ Body:
 }
 ```
 
-The server derives `dm`, `htn`, `ckd34`, and `tier_id`. N18.5 or N18.6 returns `422` with code `outside_matrix`. Response includes the client id, tier, flags, and the raw card token once. The raw token is not stored and is not returned again.
+The server derives `dm`, `htn`, `ckd34`, and `tier_id`. N18.5 or N18.6 returns `422` with code `outside_matrix`. Response includes the client id, tier, flags, `warnings`, and the raw card token once. `warnings` is an array. It is present when an E10 or E13 code does not set diabetes by itself. The raw token is not stored and is not returned again.
 
 ### `GET /clients` and `GET /clients/{id}`
 
@@ -75,7 +75,7 @@ Doctor and admin. Includes decrypted name and phone, ICD codes, flags, tier, all
 
 ### `PATCH /clients/{id}`
 
-Doctor and admin. May change phone, household size, ICD list, allergen codes, and `k_limit_ordered`. The same transaction copies the new flags onto every active session for that client. The body cannot include a verdict or a color.
+Doctor and admin. May change phone, household size, ICD list, allergen codes, and `k_limit_ordered`. The same transaction copies the new flags onto every active or queued session for that client. The body cannot include a verdict or a color. A body that does is `422`.
 
 ### `POST /clients/{id}/tokens/revoke`
 
@@ -139,6 +139,8 @@ Body: `{ "session_id", "barcode" }`. Produce with no barcode may send `internal_
     "potassium_mg": 184,
     "phosphorus_mg": 11,
     "added_sugar_g": null,
+    "carb_g": 10.2,
+    "fiber_g": 0.1,
     "aisle": "A",
     "shelf": "1",
     "bin_code": "A1",
@@ -148,7 +150,7 @@ Body: `{ "session_id", "barcode" }`. Produce with no barcode may send `internal_
 }
 ```
 
-Unknown barcode: `{ "verdict": "unknown", "reasons": [], "product": null }`.
+Unknown barcode: `{ "verdict": "unknown", "reasons": [], "product": null }`. A session that is not active returns `409` with code `session_not_active`. The same code is used for cart and checkout.
 
 ### `POST /cart/lines`
 

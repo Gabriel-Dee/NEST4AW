@@ -1,0 +1,113 @@
+import type { ClientProfile, TierId } from "@/lib/types";
+
+/** Synthetic demo clients aligned with docs/golden.json personas. */
+export const CLIENTS: ClientProfile[] = [
+  {
+    id: "cli-maria",
+    key: "maria",
+    legal_name: "Maria Alvarez",
+    first_name: "Maria",
+    phone: "555-0100",
+    email: "maria@demo.local",
+    household_size: 3,
+    icd10: ["E11.9", "I10"],
+    tier: "T4",
+    allergens: [],
+    k_limit_ordered: false,
+    enrollment_status: "active",
+    card_token: "1001",
+    dm: true,
+    htn: true,
+    ckd34: false,
+  },
+  {
+    id: "cli-james",
+    key: "james",
+    legal_name: "James Carter",
+    first_name: "James",
+    phone: "555-0101",
+    email: "james@demo.local",
+    household_size: 1,
+    icd10: ["I10", "N18.32"],
+    tier: "T6",
+    allergens: [],
+    k_limit_ordered: false,
+    enrollment_status: "active",
+    card_token: "1002",
+    dm: false,
+    htn: true,
+    ckd34: true,
+  },
+  {
+    id: "cli-asha",
+    key: "asha",
+    legal_name: "Asha Bennett",
+    first_name: "Asha",
+    phone: "555-0102",
+    email: "asha@demo.local",
+    household_size: 2,
+    icd10: ["E11.22", "I10", "N18.4"],
+    tier: "T7",
+    allergens: ["peanuts"],
+    k_limit_ordered: false,
+    enrollment_status: "active",
+    card_token: "1003",
+    dm: true,
+    htn: true,
+    ckd34: true,
+  },
+  {
+    id: "cli-luis",
+    key: "luis",
+    legal_name: "Luis Ortega",
+    first_name: "Luis",
+    phone: "555-0103",
+    email: "luis@demo.local",
+    household_size: 4,
+    icd10: ["E11.22", "I10", "N18.31"],
+    tier: "T7",
+    allergens: ["milk"],
+    k_limit_ordered: true,
+    enrollment_status: "active",
+    card_token: "1004",
+    dm: true,
+    htn: true,
+    ckd34: true,
+  },
+  {
+    id: "cli-helen",
+    key: "helen",
+    legal_name: "Helen Brooks",
+    first_name: "Helen",
+    phone: "555-0104",
+    email: "helen@demo.local",
+    household_size: 1,
+    icd10: ["N18.4"],
+    tier: "T3",
+    allergens: ["sesame"],
+    k_limit_ordered: false,
+    enrollment_status: "expired",
+    card_token: "1005",
+    dm: false,
+    htn: false,
+    ckd34: true,
+  },
+];
+
+export const TIER_LABELS: Record<TierId, string> = {
+  T1: "Diabetes",
+  T2: "Hypertension",
+  T3: "CKD Stage 3–4",
+  T4: "Diabetes + HTN",
+  T5: "Diabetes + CKD",
+  T6: "HTN + CKD",
+  T7: "DM + HTN + CKD",
+};
+
+export function findClientByToken(token: string): ClientProfile | undefined {
+  return CLIENTS.find((c) => c.card_token === token.trim());
+}
+
+export function findClientById(id: string): ClientProfile | undefined {
+  return CLIENTS.find((c) => c.id === id);
+}
