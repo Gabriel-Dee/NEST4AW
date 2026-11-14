@@ -1,0 +1,26 @@
+{
+  "kind": "critique-panel",
+  "score": 4,
+  "axes": {
+    "clarity": {
+      "score": 4,
+      "notes": "Four role areas map to clear routes; kiosk/checkout states are distinct."
+    },
+    "hierarchy": {
+      "score": 4,
+      "notes": "Apple-like shell with green primary; hard-stop banner owns checkout attention."
+    },
+    "typography": {
+      "score": 4,
+      "notes": "Geist + large kiosk keypad; staff tables use compact body scale."
+    },
+    "motion": {
+      "score": 3,
+      "notes": "Loading delays only; no entrance choreography yet — acceptable for ops UI."
+    },
+    "brand": {
+      "score": 4,
+      "notes": "Warm off-white + Epic Cure green on Apple radius/capsule language; no purple slop."
+    }
+  }
+}

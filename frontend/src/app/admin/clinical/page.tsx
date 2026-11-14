@@ -1,6 +1,5 @@
 "use client";
 
-import { AppShell } from "@/components/layout/app-shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -129,7 +128,6 @@ export default function ClinicalIntakePage() {
   }
 
   return (
-    <AppShell>
       <div className="mx-auto max-w-3xl space-y-6">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">
@@ -406,6 +404,5 @@ export default function ClinicalIntakePage() {
           </Button>
         </form>
       </div>
-    </AppShell>
   );
 }

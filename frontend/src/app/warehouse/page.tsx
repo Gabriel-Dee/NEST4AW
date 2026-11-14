@@ -1,6 +1,5 @@
 "use client";
 
-import { AppShell } from "@/components/layout/app-shell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -83,7 +82,8 @@ export default function WarehousePage() {
   }, []);
 
   useEffect(() => {
-    load("ok");
+    const t = window.setTimeout(() => load("ok"), 0);
+    return () => window.clearTimeout(t);
   }, [load]);
 
   const categories = useMemo(() => {
@@ -142,7 +142,6 @@ export default function WarehousePage() {
   }, [items]);
 
   return (
-    <AppShell>
       <div className="space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -467,6 +466,5 @@ export default function WarehousePage() {
           </TabsContent>
         </Tabs>
       </div>
-    </AppShell>
   );
 }

@@ -1,43 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Epic Cure · MTG Warehouse (frontend)
 
-## Getting Started
+Next.js App Router + Tailwind v4 + shadcn/ui for the Medically Tailored Groceries warehouse lane.
 
-First, run the development server:
+## Run
 
 ```bash
+cd frontend
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Demo logins
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Password for all: `nest-local-demo`
 
-## Learn More
+| Email | Default home |
+| --- | --- |
+| `staff@demo.local` | Checkout |
+| `doctor@demo.local` | Clinical intake |
+| `admin@demo.local` | Admin overview |
+| `partner@demo.local` | Analytics |
 
-To learn more about Next.js, take a look at the following resources:
+Public kiosk: [/kiosk](http://localhost:3000/kiosk) — try card tokens `1001` (success), `1005` (enrollment expired), `9999` (queue).
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Screens
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Route | Area |
+| --- | --- |
+| `/kiosk` | Self-service check-in |
+| `/checkout` | Volunteer terminal + hard-stop |
+| `/warehouse` | Inventory, alerts, restock, floor capacity |
+| `/admin/clinical` | Clinical profile intake |
+| `/admin/analytics` | Anonymized KPIs + CSV export |
+| `/admin/rules` | Clinical rules matrix |
 
-## Deploy on Vercel
+Use the sidebar **Switch role** control to demo role-gated nav after a single login.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Contract note
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
-# Frontend
+Colors come from the API `verdict` field. This UI paints `green` / `yellow` / `red` / `unknown` only — it does not invent a color from nutrients. Live backend: see repo `docs/API.md`. Mock layer: `src/lib/mock/api.ts`.
 
-You own the kiosk and the desk screens: doctor, client, warehouse staff, admin, and community partner. Paste `docs/prompts/frontend.md` into your chat.
-
-The API contract is `docs/API.md`. Display the server verdict. Do not calculate a color in this folder.
-
-Dev server port 5173. The aisle phone is the `mobile/` folder.
+The aisle phone remains in `../mobile/`.
