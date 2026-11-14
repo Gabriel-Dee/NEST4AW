@@ -1,162 +1,155 @@
 {
-  "baseUrl": "http://187.124.157.140:8010",
-  "startedAt": "2026-11-14T21:18:43.351Z",
-  "finishedAt": "2026-11-14T21:18:46.932Z",
-  "email": "smoke.maria.1794691123944@test.local",
-  "storeId": "cdffe51e-fb3a-4faa-a706-5734949669af",
-  "visitTokenPresent": false,
+  "baseUrl": "http://127.0.0.1:8001",
+  "startedAt": "2026-11-14T22:13:04.681Z",
+  "finishedAt": "2026-11-14T22:13:10.669Z",
+  "email": "maria@demo.local",
+  "storeId": "958700aa-4b91-46f6-8d94-a5ba86c956a0",
+  "visitTokenPresent": true,
   "summary": {
-    "passed": 6,
-    "failed": 34,
-    "total": 40
+    "passed": 14,
+    "failed": 25,
+    "total": 39
   },
   "steps": [
     {
       "name": "0.health",
       "pass": true,
       "status": 200,
-      "ms": 187,
+      "ms": 28,
       "notes": "{\"db\":\"ok\",\"ai\":\"fallback\",\"embeddings\":\"not_configured\"}"
     },
     {
       "name": "0.reset-seed /api/v1/dev/reset-seed",
       "pass": false,
       "status": 404,
-      "ms": 116,
+      "ms": 2,
       "notes": "MISSING"
     },
     {
       "name": "0.reset-seed /dev/reset-seed",
       "pass": false,
       "status": 404,
-      "ms": 55,
+      "ms": 3,
       "notes": "MISSING"
     },
     {
       "name": "1.login Maria seed",
-      "pass": false,
-      "status": 401,
-      "ms": 234,
-      "notes": "seed missing (unauthorized); registering ephemeral Maria-like client"
-    },
-    {
-      "name": "1.register Maria-like",
       "pass": true,
-      "status": 201,
-      "ms": 138,
-      "notes": "smoke.maria.1794691123944@test.local"
+      "status": 200,
+      "ms": 25,
+      "notes": "seed ok"
     },
     {
       "name": "1.auth/me",
       "pass": true,
       "status": 200,
-      "ms": 67,
+      "ms": 5,
       "notes": "tier=T4 client_code=MISSING"
     },
     {
       "name": "2.stores near St Augustine",
       "pass": true,
       "status": 200,
-      "ms": 71,
+      "ms": 4,
       "notes": "3 stores; first=Epic Cure main warehouse"
     },
     {
       "name": "2.stores/nearest",
       "pass": true,
       "status": 200,
-      "ms": 66,
+      "ms": 3,
       "notes": "Epic Cure main warehouse"
     },
     {
       "name": "3.geofence check-in",
-      "pass": false,
-      "status": 500,
-      "ms": 65,
-      "notes": "internal_error {\"error\":{\"code\":\"internal_error\",\"message\":\"request could not be completed\"}}"
+      "pass": true,
+      "status": 200,
+      "ms": 6,
+      "notes": "status=active"
     },
     {
       "name": "3.NOT_AT_STORE far coords",
-      "pass": true,
-      "status": 403,
-      "ms": 114,
-      "notes": "{\"error\":{\"code\":\"NOT_AT_STORE\",\"message\":\"check-in location is outside this store\",\"distance_m\":1372366.8}}"
+      "pass": false,
+      "status": 409,
+      "ms": 5,
+      "notes": "{\"error\":{\"code\":\"ALREADY_CHECKED_IN\",\"message\":\"this account already has a visit\",\"visit\":{\"status\":\"active\",\"store\":{\"id\":\"958700aa-4b91-46f6-8d94-a5ba86c956a0\",\"name\":\"Epic Cure"
     },
     {
       "name": "3.kiosk check-in",
       "pass": false,
       "status": 401,
-      "ms": 113,
+      "ms": 3,
       "notes": "unauthorized (need seeded X-Kiosk-Code)"
     },
     {
       "name": "3.staff check-in (as client JWT)",
       "pass": false,
       "status": 403,
-      "ms": 59,
+      "ms": 3,
       "notes": "forbidden — staff JWT not available (seed empty)"
     },
     {
       "name": "3.expired persona helen seed",
-      "pass": false,
-      "status": 401,
-      "ms": 226,
-      "notes": "MISSING seed persona"
+      "pass": true,
+      "status": 200,
+      "ms": 21,
+      "notes": "{\"access_token\":\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIwOGEzZDZjOC0zOTlhLTQzM2MtOWNmNC00OTc0NjJkMDk2ZmMiLCJyb2"
     },
     {
       "name": "4.recommendations",
-      "pass": false,
-      "status": 401,
-      "ms": 128,
-      "notes": "SESSION_INVALID"
+      "pass": true,
+      "status": 200,
+      "ms": 30,
+      "notes": "n=12"
     },
     {
       "name": "5.dev/barcodes",
       "pass": false,
       "status": 404,
-      "ms": 66,
+      "ms": 2,
       "notes": "MISSING"
     },
     {
       "name": "5.scan SOUP",
       "pass": false,
-      "status": 401,
-      "ms": 59,
-      "notes": "SESSION_INVALID"
+      "status": 404,
+      "ms": 4,
+      "notes": "PRODUCT_NOT_FOUND"
     },
     {
       "name": "5.scan BEANS",
       "pass": false,
-      "status": 401,
-      "ms": 57,
-      "notes": "SESSION_INVALID"
+      "status": 404,
+      "ms": 4,
+      "notes": "PRODUCT_NOT_FOUND"
     },
     {
       "name": "5.scan 00041196419429",
-      "pass": false,
-      "status": 401,
-      "ms": 58,
-      "notes": "SESSION_INVALID"
+      "pass": true,
+      "status": 200,
+      "ms": 5,
+      "notes": "expected=n/a actual=red"
     },
     {
       "name": "5.scan junk-xyz",
       "pass": false,
-      "status": 401,
-      "ms": 58,
-      "notes": "SESSION_INVALID"
+      "status": 404,
+      "ms": 4,
+      "notes": "PRODUCT_NOT_FOUND"
     },
     {
       "name": "5.scan 041196419429",
-      "pass": false,
-      "status": 401,
-      "ms": 57,
-      "notes": "SESSION_INVALID"
+      "pass": true,
+      "status": 200,
+      "ms": 614,
+      "notes": "expected=n/a actual=red"
     },
     {
       "name": "6.cart get",
-      "pass": false,
-      "status": 401,
-      "ms": 56,
-      "notes": "SESSION_INVALID"
+      "pass": true,
+      "status": 200,
+      "ms": 7,
+      "notes": "{\"items\":[],\"summary\":{\"green\":0,\"yellow\":0,\"red\":0,\"total_items\":0},\"nutrient_totals\":{\"sodium_mg\":0,\"sugar_g\":0,\"potassium_mg\":0,\"phosphorus_mg\":0,\"calories\":"
     },
     {
       "name": "6.cart add green/yellow/red",
@@ -167,124 +160,126 @@
       "name": "7.recipes/for-me",
       "pass": false,
       "status": 422,
-      "ms": 68,
+      "ms": 4,
       "notes": "VALIDATION_ERROR (OpenAPI requires session_id query)"
     },
     {
       "name": "7.recipes/from-cart",
-      "pass": false,
-      "status": 401,
-      "ms": 112,
-      "notes": "SESSION_INVALID"
+      "pass": true,
+      "status": 200,
+      "ms": 5114,
+      "notes": "source=ai"
     },
     {
       "name": "7.recipes/saved",
       "pass": false,
       "status": 422,
-      "ms": 56,
+      "ms": 2,
       "notes": "VALIDATION_ERROR"
     },
     {
-      "name": "8.checkout",
+      "name": "8.checkout validate RED",
       "pass": false,
-      "notes": "no visit_token — check-in failed"
+      "status": 404,
+      "ms": 6,
+      "notes": "PRODUCT_NOT_FOUND"
     },
     {
       "name": "9.staff login",
-      "pass": false,
-      "status": 401,
-      "ms": 226,
-      "notes": "MISSING seed staff"
+      "pass": true,
+      "status": 200,
+      "ms": 33,
+      "notes": "ok"
     },
     {
       "name": "9./api/v1/inventory",
       "pass": false,
       "status": 404,
-      "ms": 57,
+      "ms": 2,
       "notes": "MISSING"
     },
     {
       "name": "9./api/v1/inventory/alerts",
       "pass": false,
       "status": 404,
-      "ms": 135,
+      "ms": 2,
       "notes": "MISSING"
     },
     {
       "name": "9./api/v1/inventory/restock-route",
       "pass": false,
       "status": 404,
-      "ms": 54,
+      "ms": 2,
       "notes": "MISSING"
     },
     {
       "name": "9./api/v1/floor/status",
       "pass": false,
       "status": 404,
-      "ms": 56,
+      "ms": 1,
       "notes": "MISSING"
     },
     {
       "name": "10.admin login",
-      "pass": false,
-      "status": 401,
-      "ms": 125,
-      "notes": "MISSING seed admin"
+      "pass": true,
+      "status": 200,
+      "ms": 25,
+      "notes": "ok"
     },
     {
       "name": "10./api/v1/analytics/summary",
       "pass": false,
       "status": 404,
-      "ms": 57,
+      "ms": 2,
       "notes": "MISSING"
     },
     {
       "name": "10./api/v1/analytics/trends",
       "pass": false,
       "status": 404,
-      "ms": 73,
+      "ms": 2,
       "notes": "MISSING"
     },
     {
       "name": "10./api/v1/analytics/distribution",
       "pass": false,
       "status": 404,
-      "ms": 56,
+      "ms": 2,
       "notes": "MISSING"
     },
     {
       "name": "10./api/v1/analytics/insights",
       "pass": false,
       "status": 404,
-      "ms": 87,
+      "ms": 1,
       "notes": "MISSING"
     },
     {
       "name": "10./api/v1/reports/grants.csv",
       "pass": false,
       "status": 404,
-      "ms": 70,
+      "ms": 2,
       "notes": "MISSING"
     },
     {
       "name": "10./api/v1/rules",
       "pass": false,
       "status": 404,
-      "ms": 69,
+      "ms": 2,
       "notes": "MISSING"
     },
     {
       "name": "10./api/v1/ai/logs",
       "pass": false,
       "status": 404,
-      "ms": 156,
+      "ms": 2,
       "notes": "MISSING"
     },
     {
       "name": "10./api/v1/recipes/eval-report",
       "pass": false,
       "status": 422,
-      "ms": 69,
+      "ms": 2,
       "notes": "VALIDATION_ERROR"
     }
   ]

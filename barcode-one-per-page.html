@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Epic Cure – Barcodes, one per page</title>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+<style>
+body{font-family:-apple-system,system-ui,sans-serif;background:#faf8f3;color:#1d2b1f;margin:24px}
+h1{margin:0 0 4px}.sub{color:#5a6b5c;margin:0 0 16px;max-width:900px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:14px}
+.card{background:#fff;border-radius:14px;padding:14px;box-shadow:0 1px 4px rgba(0,0,0,.08);break-inside:avoid}
+.card h3{margin:0;font-size:15px}.brand{color:#5a6b5c;font-size:13px}
+svg{width:100%;height:auto;background:#fff}
+.meta{font-size:13px;margin-top:6px}.pill{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:600;margin-top:6px}
+.green{background:#dff3e2;color:#17692a}.yellow{background:#fff3cc;color:#7a5a00}.red{background:#fde0de;color:#9b1c13}
+body:not(.reveal) .key{display:none}
+#t{position:sticky;top:8px;z-index:9;padding:10px 16px;border-radius:999px;border:0;background:#17692a;color:#fff;font-size:15px;font-weight:600;margin-bottom:14px;cursor:pointer}
+.allergy{color:#9b1c13;font-size:12px}.cat{font-size:11px;text-transform:uppercase;color:#7b8a7d;letter-spacing:.05em}
+@media print{body{margin:8mm}.grid{grid-template-columns:repeat(3,1fr)}#t{display:none}.print-key{display:block!important;break-before:page}}
+.print-key{display:none}.print-key table{width:100%;border-collapse:collapse;font-size:13px}.print-key td,.print-key th{border-bottom:1px solid #ddd;padding:6px;text-align:left}
+
+/* one-per-page layout */
+.grid{display:block}
+.card{break-after:page;page-break-after:always;min-height:92vh;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;box-shadow:none;border:0;margin:0}
+.card h3{font-size:30px;margin-top:6px}.card .brand{font-size:18px}.card .cat{font-size:14px}
+.card svg{width:85%;max-width:560px}
+.card .num{font-size:14px;color:#5a6b5c;margin-top:8px}
+h1,.sub,#t{display:none}
+.key{display:none!important}
+</style></head><body>
+<h1>Barcode Scan Test Sheet</h1>
+<p class="sub">23 real US products (barcodes + nutrition per serving from Open Food Facts, pulled 2026-11-14). Scan them from this screen with the phone app, or print the page.
+Scan first, then press <b>Show answer key</b> to compare. The answer key is the expected color for persona <b>Maria G. (Type 2 Diabetes + Hypertension)</b>, using example thresholds: sodium 🟢 &lt;140 · 🟡 ≤480 · 🔴 &gt;480 mg; sugar 🟢 &lt;5 · 🟡 ≤12 · 🔴 &gt;12 g; worst wins.
+Your backend's rules may differ, so if the app disagrees, check which thresholds it uses.
+These items probably aren't in your seed, so they also test the "not in system" path.</p>
+<button id="t" onclick="document.body.classList.toggle('reveal');this.textContent=document.body.classList.contains('reveal')?'Hide answer key':'Show answer key (after scanning)'">Show answer key (after scanning)</button>
+<div class="grid" id="g"></div>
+<div class="print-key"><h2>Answer key (Maria G.: Type 2 Diabetes + Hypertension)</h2><p class="sub">Example thresholds: sodium &lt;140 / ≤480 / &gt;480 mg; sugar &lt;5 / ≤12 / &gt;12 g; worst wins. Your backend's rules may differ.</p><table><thead><tr><th>Product</th><th>Barcode</th><th>Expected</th><th>Why</th></tr></thead><tbody id="k"></tbody></table></div>
+<script>
+const P=
+[{"cat": "soups", "code": "0051000000118", "name": "Tomato Soup", "brand": "Campbell's", "serving": "1 Serving (120 ml)", "sodium_mg": 480, "sugar_g": 12, "carbs_g": 20, "allergens": ["celery", "gluten"]}, {"cat": "breakfast-cereals", "code": "0096619194261", "name": "Ancient Grains Probiotic Granola", "brand": "Kirkland Signature", "serving": "1 serving (106 g)", "sodium_mg": 240, "sugar_g": 19, "carbs_g": 72, "allergens": ["gluten", "nuts", "soybeans"]}, {"cat": "breakfast-cereals", "code": "0058449770565", "name": "Pumpkin Seed + Flax Granola", "brand": "Nature's Path Organic", "serving": "0.75 cup cereal (55 g)", "sodium_mg": 45, "sugar_g": 10, "carbs_g": 37, "allergens": ["gluten", "nuts", "peanuts", "soybeans"]}, {"cat": "peanut-butters", "code": "0096619555505", "name": "Organic Creamy Peanut Butter", "brand": "Kirkland", "serving": "2 tbsp (32 g)", "sodium_mg": 0, "sugar_g": 0.499, "carbs_g": 3.5, "allergens": ["peanuts"]}, {"cat": "peanut-butters", "code": "0051500255162", "name": "Creamy Peanut Butter", "brand": "Jif", "serving": "1 serving (33 g)", "sodium_mg": 140, "sugar_g": 3, "carbs_g": 8, "allergens": ["peanuts", "soybeans"]}, {"cat": "orange-juices", "code": "0048500205723", "name": "No Calcium OJ", "brand": "Tropicana", "serving": "240ml", "sodium_mg": 0, "sugar_g": 22, "carbs_g": 26, "allergens": []}, {"cat": "oatmeals", "code": "0675625371189", "name": "Sprouted Rolled Oats", "brand": "One Degree Organic Foods", "serving": "0.5 cup (52 g)", "sodium_mg": 0, "sugar_g": 0, "carbs_g": 34, "allergens": []}, {"cat": "oatmeals", "code": "0030000010402", "name": "Old Fashioned Oats", "brand": "Quaker Oats", "serving": "1/2 cup dry (40 g)", "sodium_mg": 0, "sugar_g": 1, "carbs_g": 27, "allergens": []}, {"cat": "canned-tomatoes", "code": "0096619937325", "name": "Organic Diced Tomatoes", "brand": "Kirkland Signature", "serving": "1 serving (120 g)", "sodium_mg": 220, "sugar_g": 3, "carbs_g": 5, "allergens": []}, {"cat": "canned-beans", "code": "0072273487253", "name": "Black Beans Organic", "brand": "S&W", "serving": "1 serving (130 g)", "sodium_mg": 0, "sugar_g": 1, "carbs_g": 20, "allergens": []}, {"cat": "canned-beans", "code": "0039400016120", "name": "Baked Beans, Original", "brand": "Bush's Best", "serving": "0.5 cup (130 g)", "sodium_mg": 560, "sugar_g": 11, "carbs_g": 30, "allergens": ["mustard"]}, {"cat": "cereal-bars", "code": "0016000264694", "name": "Oats 'N Honey Granola Bars", "brand": "Nature Valley", "serving": "2 bars (42 g)", "sodium_mg": 140, "sugar_g": 11, "carbs_g": 29, "allergens": ["gluten", "soybeans"]}, {"cat": "cereal-bars", "code": "0722252101204", "name": "ClifBar Crunchy Peanut Butter", "brand": "Clif", "serving": "1 bar (68 g)", "sodium_mg": 0, "sugar_g": 11.6, "carbs_g": 27.2, "allergens": ["gluten", "peanuts", "soybeans"]}, {"cat": "chips", "code": "0815099021658", "name": "Organic Chia & Quinoa Restaurant Style Tortilla Chips", "brand": "Late July, Late July Snacks", "serving": "1 serving (28 g)", "sodium_mg": 65, "sugar_g": 0, "carbs_g": 16, "allergens": []}, {"cat": "chips", "code": "0829515326890", "name": "Veggie Puffs Crispy Taco", "brand": "garden", "serving": "55 puffs (28 g)", "sodium_mg": 320, "sugar_g": 1, "carbs_g": 15, "allergens": ["milk"]}, {"cat": "crackers", "code": "0856069005155", "name": "ALMOND FLOUR CRACKERS Farmhouse Cheddar", "brand": "Simple Mills", "serving": "17 crackers (30 g)", "sodium_mg": 230, "sugar_g": 0.5, "carbs_g": 17, "allergens": ["milk", "nuts"]}, {"cat": "crackers", "code": "0071146008267", "name": "Harvest Snaps Organic Sea Salt", "brand": "Eat Better Snacks", "serving": "1 serving (28 g)", "sodium_mg": 75, "sugar_g": null, "carbs_g": 16, "allergens": []}, {"cat": "yogurts", "code": "0096619483556", "name": "organic GREEK YOGURT plain", "brand": "KIRKLAND Signature", "serving": "0.667 cup (170 g)", "sodium_mg": 65, "sugar_g": 4, "carbs_g": 7, "allergens": ["milk"]}, {"cat": "yogurts", "code": "0894700010137", "name": "Greek Yogurt Nonfat Plain", "brand": "chobani", "serving": "1 serving (170 g)", "sodium_mg": 60, "sugar_g": 0, "carbs_g": 6.8, "allergens": ["milk", "cultured nonfat milk"]}, {"cat": "pasta-sauces", "code": "0747479000413", "name": "Marinara", "brand": "Rao's Homemade", "serving": "0.5 cup (125 g)", "sodium_mg": 420, "sugar_g": 4, "carbs_g": 6, "allergens": []}, {"cat": "pasta-sauces", "code": "0041129395905", "name": "Pasta Sauce", "brand": "Classico Organic", "serving": "0.5 cup (125 g)", "sodium_mg": 390, "sugar_g": 8, "carbs_g": 12, "allergens": []}, {"cat": "soups", "code": "0051000012517", "name": "Chicken Noodle", "brand": "Campbell's", "serving": "1 serving (120 ml)", "sodium_mg": 742, "sugar_g": null, "carbs_g": 6.67, "allergens": ["eggs", "gluten", "soybeans"]}, {"cat": "soups", "code": "0070662010037", "name": "Chicken Ramen Noodle Soup", "brand": "Nissin", "serving": "85g", "sodium_mg": 1590, "sugar_g": 0, "carbs_g": 53, "allergens": ["gluten", "soybeans"]}]
+;
+function rate(v,g,y){if(v==null)return null;return v<g?0:v<=y?1:2}
+const L=[["green","🟢 Great choice"],["yellow","🟡 Limit"],["red","🔴 Not for Maria"]];
+const g=document.getElementById("g");
+P.forEach((p,i)=>{
+  const r=[rate(p.sodium_mg,140,480),rate(p.sugar_g,5,12)].filter(x=>x!=null);
+  const lvl=r.length?Math.max(...r):1;
+  const why=[];if(rate(p.sodium_mg,140,480)>0)why.push("sodium "+p.sodium_mg+" mg");if(rate(p.sugar_g,5,12)>0)why.push("sugar "+p.sugar_g+" g");
+  const c=document.createElement("div");c.className="card";
+  c.innerHTML=`<div class="num">Barcode ${i+1} of ${P.length}</div><div class="cat">${p.cat.replace(/-/g," ")}</div><h3>${p.name}</h3><div class="brand">${p.brand} · serving ${p.serving||"?"}</div>
+  <svg id="b${i}"></svg>
+  <div class="key"><div class="meta">Sodium <b>${p.sodium_mg} mg</b> · Sugar <b>${p.sugar_g??"n/a"} g</b> · Carbs ${p.carbs_g??"n/a"} g</div>
+  <span class="pill ${L[lvl][0]}">${L[lvl][1]}${why.length?" – "+why.join(", "):""}</span>
+  ${p.allergens.length?`<div class="allergy">⚠ Allergens: ${p.allergens.join(", ")}</div>`:""}</div>`;
+  g.appendChild(c);
+  document.getElementById('k').insertAdjacentHTML('beforeend',`<tr><td>${p.name}</td><td>${p.code.slice(1)}</td><td>${L[lvl][1]}</td><td>${why.join(', ')||'within limits'}${p.allergens.length?' · allergens: '+p.allergens.join(', '):''}</td></tr>`);
+  const o={height:160,fontSize:22,margin:10,width:3};
+  try{JsBarcode("#b"+i,p.code.slice(1),{...o,format:"UPC"})}
+  catch(e){try{JsBarcode("#b"+i,p.code,{...o,format:"EAN13"})}catch(e2){JsBarcode("#b"+i,p.code,{...o,format:"CODE128"})}}
+});
+</script></body></html>
