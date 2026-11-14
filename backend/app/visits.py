@@ -39,8 +39,10 @@ def expire_idle(conn):
 
 def summary(conn, client_id):
     row = read_client(conn, client_id)
+    legal_name = (row["legal_name"] or "").strip()
     return {
         "id": row["id"],
+        "first_name": legal_name.split()[0] if legal_name else None,
         "household_size": row["household_size"],
         "tier_id": row["tier_id"],
         "dm": row["dm"],

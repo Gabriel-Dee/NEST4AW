@@ -10,7 +10,7 @@ from pydantic import Field
 
 from app.errors import APIError
 from app.floor import active_session
-from app.schemas import SessionBody, Strict
+from app.schemas import Strict
 from app.services import recipes as recipe_service
 from app.visits import resolve_visit_token, store_of_session
 from seed.recipes import seed_library
@@ -18,7 +18,8 @@ from seed.recipes import seed_library
 router = APIRouter(prefix="/api/v1/recipes")
 
 
-class SaveRecipe(SessionBody):
+class SaveRecipe(Strict):
+    session_id: UUID | None = None
     recipe_id: UUID
 
 
@@ -146,13 +147,15 @@ def serve(app, session_id, mode):
 
 
 @router.get("/for-me")
-async def for_me(request: Request, session_id: UUID = Query()):
+async def for_me(request: Request, session_id: UUID | None = Query(default=None)):
+    session_id = await run_in_threadpool(resolve_session, request, session_id)
     return await run_in_threadpool(serve, request.app, session_id, "profile")
 
 
-def session_for_cart(request: Request, body: CartRecipes) -> UUID:
-    if body.session_id is not None:
-        return body.session_id
+def resolve_session(request: Request, session_id: UUID | None) -> UUID:
+    """Legacy callers pass session_id; the /api/v1 shopping contract sends X-Visit-Token."""
+    if session_id is not None:
+        return session_id
     token = request.headers.get("x-visit-token")
     if not token:
         raise APIError(401, "SESSION_INVALID", "visit token is required")
@@ -169,15 +172,17 @@ def session_for_cart(request: Request, body: CartRecipes) -> UUID:
 @router.post("/from-cart")
 async def from_cart(request: Request, body: CartRecipes | None = None):
     payload = body or CartRecipes()
-    session_id = await run_in_threadpool(session_for_cart, request, payload)
+    session_id = await run_in_threadpool(resolve_session, request, payload.session_id)
     return await run_in_threadpool(serve, request.app, session_id, "cart")
 
 
 @router.post("/saved")
 async def save_recipe(body: SaveRecipe, request: Request):
+    session_id = await run_in_threadpool(resolve_session, request, body.session_id)
+
     def write():
         with request.app.state.pool.connection() as conn:
-            person = active_session(conn, body.session_id)
+            person = active_session(conn, session_id)
             card = conn.execute(
                 "SELECT payload FROM recipe_cards WHERE client_id=%s AND id=%s",
                 (person["client_id"], body.recipe_id),
@@ -204,7 +209,9 @@ async def save_recipe(body: SaveRecipe, request: Request):
 
 
 @router.get("/saved")
-async def list_saved(request: Request, session_id: UUID = Query()):
+async def list_saved(request: Request, session_id: UUID | None = Query(default=None)):
+    session_id = await run_in_threadpool(resolve_session, request, session_id)
+
     def read():
         with request.app.state.pool.connection() as conn:
             person = active_session(conn, session_id)
@@ -220,7 +227,9 @@ async def list_saved(request: Request, session_id: UUID = Query()):
 
 
 @router.delete("/saved/{recipe_id}")
-async def delete_saved(recipe_id: UUID, request: Request, session_id: UUID = Query()):
+async def delete_saved(recipe_id: UUID, request: Request, session_id: UUID | None = Query(default=None)):
+    session_id = await run_in_threadpool(resolve_session, request, session_id)
+
     def remove():
         with request.app.state.pool.connection() as conn:
             person = active_session(conn, session_id)
@@ -236,7 +245,9 @@ async def delete_saved(recipe_id: UUID, request: Request, session_id: UUID = Que
 
 
 @router.get("/{recipe_id}")
-async def recipe_detail(recipe_id: UUID, request: Request, session_id: UUID = Query()):
+async def recipe_detail(recipe_id: UUID, request: Request, session_id: UUID | None = Query(default=None)):
+    session_id = await run_in_threadpool(resolve_session, request, session_id)
+
     def read():
         with request.app.state.pool.connection() as conn:
             person = active_session(conn, session_id)

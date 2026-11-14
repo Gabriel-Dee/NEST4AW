@@ -317,7 +317,7 @@ def render_recipe(
         elif verdict != "red":
             missing.append({"product": row["product"], "status": verdict})
     tags, why = claim(person, [verdict for _product, _servings, verdict in chosen], library_tags)
-    if any(verdict == "yellow" for _product, _servings, verdict in chosen):
+    if source != "ai" and any(verdict == "yellow" for _product, _servings, verdict in chosen):
         title = "Today's " + " and ".join(
             product["name"] for product, _servings, _verdict in chosen
         )
@@ -404,13 +404,20 @@ def from_model(batch, person, products, cart, mode, engine):
     for draft in batch.recipes:
         chosen = []
         used = set()
+        seen_names = set()
         failed = False
+        swapped = False
         for item in draft.ingredients:
             product = by_id.get(str(item.product_id))
             if product is None or str(product["id"]) in used:
                 continue
+            # Small models repeat near-identical products ("Nutella", "Nutella Plant-Based").
+            name_key = " ".join(str(product["name"]).lower().split()[:1])
+            if name_key in seen_names:
+                continue
             verdict = eligible(product, person, engine)
             if verdict is None:
+                swapped = True
                 replacement, _swapped = pick_product(
                     {"product_key": "", "category": product.get("category")},
                     products,
@@ -428,6 +435,7 @@ def from_model(batch, person, products, cart, mode, engine):
                 break
             chosen.append((product, item.servings if verdict == "green" else 1, verdict))
             used.add(str(product["id"]))
+            seen_names.add(" ".join(str(product["name"]).lower().split()[:1]))
         if failed or not accept_choice(chosen, person):
             continue
         names = [product["name"] for product, _servings, _verdict in chosen]
@@ -436,11 +444,15 @@ def from_model(batch, person, products, cart, mode, engine):
             f"Combine the prepared foods: {', '.join(names)}.",
             "Serve. Follow clinician guidance for portions.",
         ]
+        # The model's own title is kept only when every ingredient is the one it chose;
+        # after a safety swap the title could name a food that is no longer in the dish.
+        title = draft.title.strip() if not swapped else "Today's " + " and ".join(names)
+        description = draft.description.strip() or "Eligible foods from today's stock."
         rendered.append(
             render_recipe(
                 uuid4(),
-                "Today's " + " and ".join(names),
-                "Eligible foods from today's stock.",
+                title,
+                description,
                 draft.time_min,
                 draft.difficulty,
                 draft.pantry_staples,

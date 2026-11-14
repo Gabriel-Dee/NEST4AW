@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -55,7 +56,7 @@ def create_app():
             content = {"error": {"code": code, "message": message, **extra}}
         else:
             content = {"error": code, "message": message, **extra}
-        return JSONResponse(status_code=status, content=content)
+        return JSONResponse(status_code=status, content=jsonable_encoder(content))
 
     @app.exception_handler(APIError)
     async def domain_error(request, exc):

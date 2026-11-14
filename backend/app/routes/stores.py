@@ -4,6 +4,7 @@ from uuid import UUID
 
 import jwt
 from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import Field
 
@@ -81,7 +82,7 @@ def public_store(conn, store, lat, lng):
 
 
 def respond(status, body):
-    return JSONResponse(status_code=202 if status == "queue_waiting" else 200, content=body)
+    return JSONResponse(status_code=202 if status == "queue_waiting" else 200, content=jsonable_encoder(body))
 
 
 @router.get("/stores")
@@ -213,6 +214,20 @@ def current_visit(user=Depends(require_role("client")), conn=Depends(connection,
         return None
     visit = open_visit(conn, client["id"])
     return None if visit is None else public_visit(conn, visit)
+
+
+@router.get("/visits/history")
+def visit_history(user=Depends(require_role("client")), conn=Depends(connection, scope="function")):
+    """The signed-in client's own store visits, newest first. No other client's data."""
+    rows = conn.execute(
+        """SELECT v.id, v.status, v.check_in_method, v.started_at, v.ended_at,
+        s.id AS store_id, s.name AS store_name, s.city AS store_city
+        FROM visits v JOIN stores s ON s.id=v.store_id
+        JOIN clients c ON c.id=v.client_id
+        WHERE c.user_id=%s ORDER BY v.started_at DESC LIMIT 20""",
+        (user["id"],),
+    ).fetchall()
+    return jsonable_encoder(rows)
 
 
 @router.post("/visits/current/leave")

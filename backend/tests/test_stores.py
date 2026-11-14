@@ -122,7 +122,7 @@ def test_geofence_kiosk_capacity_and_store_stock(api, db):
     db.execute("UPDATE stores SET max_floor_capacity=1 WHERE id=%s", (epic["id"],))
     db.execute(
         """UPDATE visits SET status='expired', ended_at=now()
-        WHERE client_id=(SELECT id FROM clients c JOIN users u ON u.id=c.user_id WHERE u.email='maria@demo.local')"""
+        WHERE client_id=(SELECT c.id FROM clients c JOIN users u ON u.id=c.user_id WHERE u.email='maria@demo.local')"""
     )
     first = api.post(
         f"/stores/{epic['id']}/check-in",

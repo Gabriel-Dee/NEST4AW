@@ -58,6 +58,15 @@ def open_visit(conn, raw: str | None):
         raise APIError(401, "SESSION_INVALID", "visit token is not valid") from exc
     if visit["status"] != "active":
         raise APIError(409, "SESSION_INVALID", "visit is not active")
+    # The visit lives up to 3 hours of inactivity, but its floor session had a fixed 30-minute
+    # lease that nothing renewed, so shoppers were locked out mid-visit. Using the visit renews it.
+    # (A revoked card or disabled user is still expired again by advance() inside active_session.)
+    conn.execute(
+        """UPDATE sessions SET status='active',
+        lease_expires_at=now()+make_interval(mins=>(SELECT lease_minutes FROM warehouse_limits WHERE id=1))
+        WHERE id=%s AND status IN ('active','expired')""",
+        (visit["id"],),
+    )
     try:
         person = active_session(conn, visit["id"])
     except APIError as exc:
