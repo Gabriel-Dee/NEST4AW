@@ -1,15 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Separator } from "@/components/ui/separator";
+import { roleHome } from "@/lib/api";
 import { roleLabel, useAuth } from "@/lib/auth";
 import type { Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -19,9 +11,10 @@ import {
   LogOut,
   Package,
   ScanLine,
-  Shield,
   ShoppingCart,
   Stethoscope,
+  UserRound,
+  Users,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -53,9 +46,9 @@ const NAV: {
   },
   {
     href: "/admin/analytics",
-    label: "Analytics",
+    label: "Grant report",
     icon: LayoutDashboard,
-    roles: ["admin", "community_partner", "doctor"],
+    roles: ["admin", "community_partner"],
   },
   {
     href: "/admin/rules",
@@ -64,33 +57,53 @@ const NAV: {
     roles: ["doctor", "admin"],
   },
   {
-    href: "/kiosk",
-    label: "Kiosk",
+    href: "/admin",
+    label: "Users",
+    icon: Users,
+    roles: ["admin"],
+  },
+  {
+    href: "/me",
+    label: "My record",
+    icon: UserRound,
+    roles: ["client"],
+  },
+  {
+    href: "/kiosk/display",
+    label: "Kiosk QR",
     icon: ScanLine,
-    roles: ["warehouse_staff", "admin", "doctor"],
+    roles: ["warehouse_staff", "admin"],
+  },
+  {
+    href: "/kiosk",
+    label: "Kiosk scan",
+    icon: ScanLine,
+    roles: ["warehouse_staff", "admin"],
   },
 ];
 
-const SWITCHABLE: Role[] = [
-  "warehouse_staff",
-  "doctor",
-  "admin",
-  "community_partner",
-];
-
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const { user, ready, logout, switchRole } = useAuth();
+  const { user, ready, logout } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
-  const isKiosk = pathname.startsWith("/kiosk");
+  const isKioskScan = pathname === "/kiosk";
   const isLogin = pathname.startsWith("/login");
 
   useEffect(() => {
-    if (!ready || isLogin || isKiosk) return;
-    if (!user) router.replace("/login");
-  }, [ready, user, router, isLogin, isKiosk]);
+    if (!ready || isLogin || isKioskScan) return;
+    if (!user) {
+      router.replace("/login");
+      return;
+    }
+    const allowed = NAV.some((item) => {
+      if (!item.roles.includes(user.role)) return false;
+      if (item.href === "/admin") return pathname === "/admin";
+      return pathname === item.href || pathname.startsWith(`${item.href}/`);
+    });
+    if (!allowed && pathname !== roleHome(user.role)) router.replace(roleHome(user.role));
+  }, [ready, user, router, isLogin, isKioskScan, pathname]);
 
-  if (isLogin || isKiosk) {
+  if (isLogin || isKioskScan) {
     return <>{children}</>;
   }
 
@@ -116,7 +129,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <nav className="flex flex-1 flex-col gap-1">
           {links.map((item) => {
             const active =
-              pathname === item.href || pathname.startsWith(item.href + "/");
+              item.href === "/admin"
+                ? pathname === "/admin"
+                : pathname === item.href || pathname.startsWith(`${item.href}/`);
             const Icon = item.icon;
             return (
               <Link
@@ -135,30 +150,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
-        <Separator className="my-3" />
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button
-                variant="outline"
-                className="w-full justify-start gap-2 rounded-xl"
-              >
-                <Shield className="size-4" />
-                Switch role
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="start" className="w-56">
-            <DropdownMenuLabel>Demo role</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {SWITCHABLE.map((role) => (
-              <DropdownMenuItem key={role} onClick={() => switchRole(role)}>
-                {roleLabel(role)}
-                {user.role === role ? " ✓" : ""}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">

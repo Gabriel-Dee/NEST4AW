@@ -419,8 +419,58 @@ function applyClient(
   };
 }
 
+/** Account session (JWT) — enough for home / profile. */
+export function isLoggedIn() {
+  return Boolean(floor?.token);
+}
+
+/** Active store visit — after QR/geofence check-in. */
+export function isInStore() {
+  return Boolean(floor?.visitToken);
+}
+
+/** @deprecated Prefer isLoggedIn() / isInStore(). Kept for older screens. */
 export function isCheckedIn() {
-  return Boolean(floor?.visitToken || floor?.token || floor?.sessionId);
+  return isLoggedIn();
+}
+
+export function logout() {
+  floor = null;
+  void storeSet(TOKEN_KEY, null);
+  void storeSet(VISIT_KEY, null);
+}
+
+/** Payload encoded in staff kiosk QR for phones to scan. */
+export function storeCheckInQrPayload(storeId: string) {
+  return `NEST4AW:CHECKIN:${storeId}`;
+}
+
+export function parseStoreCheckInQr(raw: string): string | null {
+  const value = raw.trim();
+  const m = /^NEST4AW:CHECKIN:([0-9a-f-]{36})$/i.exec(value);
+  if (m) return m[1];
+  // Also accept nest deep links
+  try {
+    const url = new URL(value);
+    const id = url.searchParams.get('store') || url.searchParams.get('store_id');
+    if (id && /^[0-9a-f-]{36}$/i.test(id)) return id;
+  } catch {
+    /* not a URL */
+  }
+  if (/^[0-9a-f-]{36}$/i.test(value)) return value;
+  return null;
+}
+
+/** Scan store QR → geofence check-in at that store (sim uses store lat/lng). */
+export async function checkInViaStoreQr(raw: string, opts?: { pretendAtStore?: boolean }) {
+  const storeId = parseStoreCheckInQr(raw);
+  if (!storeId) throw new ApiError(400, 'bad_qr', 'That QR is not a store check-in code.');
+  const store = await getStore(storeId);
+  if (!store) throw new ApiError(404, 'not_found', 'Store not found for that QR.');
+  const pretend = opts?.pretendAtStore !== false;
+  const lat = pretend ? store.lat : store.lat;
+  const lng = pretend ? store.lng : store.lng;
+  return geofenceCheckIn(store.id, lat, lng, 5);
 }
 
 export async function restoreSession() {

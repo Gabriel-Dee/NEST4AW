@@ -3,7 +3,14 @@ import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getRecommendations, getSession, type Group, type Product } from '../../../services/api';
+import {
+  getRecommendations,
+  getSession,
+  isInStore,
+  logout,
+  type Group,
+  type Product,
+} from '../../../services/api';
 import { OfflineBanner, PrimaryButton, ProductCard, ScreenTitle } from '../../components/ui';
 import { theme } from '../../theme';
 
@@ -13,10 +20,12 @@ export default function ListScreen() {
   const router = useRouter();
   const [items, setItems] = useState<Product[] | null>(null);
   const [home, setHome] = useState<Awaited<ReturnType<typeof getSession>> | null>(null);
+  const [inStore, setInStore] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       let active = true;
+      setInStore(isInStore());
       Promise.all([getRecommendations(), getSession()]).then(([next, session]) => {
         if (!active) return;
         setItems(next);
@@ -39,8 +48,30 @@ export default function ListScreen() {
         <Text style={styles.body}>Household of {home?.householdSize ?? ''}</Text>
         {home && home.allergies.length > 0 ? <Text style={styles.body}>Allergies: {home.allergies.join(', ')}</Text> : null}
         {home && home.preferences.length > 0 ? <Text style={styles.body}>Also: {home.preferences.join(', ')}</Text> : null}
-        <PrimaryButton label="Stores & check-in" tone="quiet" onPress={() => router.push('/stores')} />
+
+        {inStore ? (
+          <View style={styles.pill}>
+            <Text style={styles.pillText}>You are checked in at the store</Text>
+          </View>
+        ) : (
+          <PrimaryButton
+            label="Check in at store"
+            onPress={() => router.push('/check-in')}
+          />
+        )}
+        <Text style={styles.body}>
+          Scan the QR on the staff kiosk screen to start shopping. Then use Scan for product barcodes.
+        </Text>
+
         <PrimaryButton label="Dietary safety" tone="quiet" onPress={() => router.push('/(tabs)/safety')} />
+        <PrimaryButton
+          label="Log out"
+          tone="quiet"
+          onPress={() => {
+            logout();
+            router.replace('/');
+          }}
+        />
         <ScreenTitle>Picked for you</ScreenTitle>
         <OfflineBanner />
         <View style={styles.note}>
@@ -85,4 +116,13 @@ const styles = StyleSheet.create({
   },
   planText: { fontSize: theme.body, fontWeight: '700', color: theme.green },
   body: { fontSize: theme.body, color: theme.ink, marginBottom: 4 },
+  pill: {
+    alignSelf: 'flex-start',
+    backgroundColor: theme.green,
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginVertical: 8,
+  },
+  pillText: { color: '#fff', fontWeight: '700', fontSize: theme.body },
 });

@@ -414,6 +414,31 @@ export async function kioskCheckIn(body: { client_code?: string; qr_token?: stri
   return row;
 }
 
+/** Payload phones scan on /check-in (must match mobile parseStoreCheckInQr). */
+export function storeCheckInQrPayload(storeId: string) {
+  return `NEST4AW:CHECKIN:${storeId}`;
+}
+
+export type StoreListRow = {
+  id: string;
+  name: string;
+  address?: string;
+  lat?: number;
+  lng?: number;
+};
+
+export async function listStoresV1(lat = 29.8947, lng = -81.3145) {
+  const data = await apiV1<unknown>(`/stores?lat=${lat}&lng=${lng}`);
+  const rows = Array.isArray(data) ? data : [];
+  return rows.filter(isRecord).map((row) => ({
+    id: String(row.id),
+    name: String(row.name ?? "Store"),
+    address: row.address == null ? undefined : String(row.address),
+    lat: typeof row.lat === "number" ? row.lat : undefined,
+    lng: typeof row.lng === "number" ? row.lng : undefined,
+  })) as StoreListRow[];
+}
+
 export async function healthV1() {
   return apiV1<{ db: string; ai: string; embeddings: string }>("/health", { auth: false });
 }
