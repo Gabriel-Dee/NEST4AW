@@ -1,5 +1,6 @@
 import hashlib
 from datetime import date
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -83,7 +84,20 @@ def board(conn=Depends(connection, scope="function")):
     rows = conn.execute(
         "SELECT id AS session_id,status,tier_id,queued_at FROM sessions WHERE status='queued' ORDER BY queued_at,id"
     ).fetchall()
-    return {"active": counts.get("active", 0), "queued": counts.get("queued", 0), "queue": rows}
+    limits = conn.execute("SELECT max_floor,max_queue FROM warehouse_limits WHERE id=1").fetchone()
+    all_rows = conn.execute(
+        "SELECT id AS session_id,status,tier_id,queued_at,lease_expires_at FROM sessions WHERE status IN ('active','queued') ORDER BY queued_at,id"
+    ).fetchall()
+    return {
+        "active": counts.get("active", 0),
+        "queued": counts.get("queued", 0),
+        "queue": rows,
+        "active_count": counts.get("active", 0),
+        "queued_count": counts.get("queued", 0),
+        "max_floor": limits["max_floor"],
+        "max_queue": limits["max_queue"],
+        "rows": all_rows,
+    }
 
 
 @router.post("/scan")
@@ -106,11 +120,14 @@ def add(body: CartAdd, request: Request, conn=Depends(connection, scope="functio
     ).fetchone()
     if food["stock"] <= (old["qty"] if old else 0):
         raise APIError(409, "out_of_stock", "not enough unexpired stock")
-    return conn.execute(
+    conn.execute(
         """INSERT INTO cart_lines(session_id,product_id,qty,verdict) VALUES(%s,%s,1,%s)
         ON CONFLICT(session_id,product_id) DO UPDATE SET qty=cart_lines.qty+1,verdict=excluded.verdict RETURNING *""",
         (body.session_id, body.product_id, result["verdict"]),
     ).fetchone()
+    return next(
+        row for row in cart_rows(conn, body.session_id) if row["product_id"] == body.product_id
+    )
 
 
 @router.delete("/cart/lines/{product_id}")
@@ -122,16 +139,34 @@ def remove(product_id: UUID, session_id: UUID, conn=Depends(connection, scope="f
     return {"ok": True}
 
 
-@router.get("/cart")
-def cart(session_id: UUID, conn=Depends(connection, scope="function")):
-    active_session(conn, session_id)
+def cart_rows(conn, session_id):
     return conn.execute(
-        "SELECT * FROM cart_lines WHERE session_id=%s ORDER BY product_id", (session_id,)
+        """SELECT c.*,p.name,p.sodium_mg,b.aisle,b.shelf,b.bin_code
+        FROM cart_lines c JOIN products p ON p.id=c.product_id
+        LEFT JOIN LATERAL (SELECT aisle,shelf,bin_code FROM bins WHERE product_id=p.id ORDER BY bin_code LIMIT 1) b ON true
+        WHERE c.session_id=%s ORDER BY c.product_id""",
+        (session_id,),
     ).fetchall()
 
 
+@router.get("/cart")
+def cart(
+    session_id: UUID,
+    response_format: Literal["rows", "summary"] = "rows",
+    conn=Depends(connection, scope="function"),
+):
+    active_session(conn, session_id)
+    rows = cart_rows(conn, session_id)
+    return {"lines": rows} if response_format == "summary" else rows
+
+
 @router.post("/checkout", dependencies=[Depends(staff)])
-def checkout(body: SessionBody, request: Request, conn=Depends(connection, scope="function")):
+def checkout(
+    body: SessionBody,
+    request: Request,
+    response_format: Literal["rows", "summary"] = "rows",
+    conn=Depends(connection, scope="function"),
+):
     person = active_session(conn, body.session_id)
     lines = conn.execute(
         "SELECT * FROM cart_lines WHERE session_id=%s ORDER BY product_id FOR UPDATE",
@@ -180,6 +215,12 @@ def checkout(body: SessionBody, request: Request, conn=Depends(connection, scope
             raise APIError(409, "out_of_stock", "not enough unexpired stock")
     conn.execute("UPDATE sessions SET status='closed' WHERE id=%s", (body.session_id,))
     advance(conn)
+    if response_format == "summary":
+        for row in ledger:
+            row["product_name"] = conn.execute(
+                "SELECT name FROM products WHERE id=%s", (row["product_id"],)
+            ).fetchone()["name"]
+        return {"session_id": body.session_id, "status": "closed", "lines": ledger}
     return ledger
 
 

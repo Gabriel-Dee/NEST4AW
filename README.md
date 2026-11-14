@@ -8,7 +8,7 @@ Medically tailored grocery lane for the UNF NestforAwhile challenge. The open ch
 | --- | --- | --- |
 | Backend | `backend/` | `docs/prompts/backend.md` |
 | Frontend | `frontend/` | `docs/prompts/frontend.md` |
-| Mobile aisle phone | `mobile/` | `docs/prompts/mobile.md` |
+| Mobile aisle phone | `mobile/` | `docs/prompts/mobile-app.md` |
 
 Shared plan: `docs/PLAN.md`. HTTP contract: `docs/API.md`. Tables: `docs/schema.sql`. The 30 expected colors: `docs/golden.json`.
 

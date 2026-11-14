@@ -1,16 +1,17 @@
 """Deterministic clinical voting. No model, network, or duplicate thresholds."""
 
 import re
+from dataclasses import asdict, dataclass
 
 REQUIRED = set(
     "NA_G NA_R NA_Y K_DEFAULT K_ORDER K_SALT K_RANK P_ADD P_MISS SUG_DRINK SUG_G SUG_Y CARB FIBER_RANK GI_Y GI_MISS ALG".split()
 )
 ALLERGEN_WORDS = {
-    "milk": r"milk|cream|butter|whey|casein|cheese|yogurt",
+    "milk": r"milk|buttermilk|cream|butter|whey|casein|cheese|yogurt",
     "eggs": r"egg|eggs|albumen",
     "fish": r"fish|salmon|tuna|cod|anchovy|anchovies",
-    "crustacean_shellfish": r"shrimp|prawn|crab|lobster|crayfish",
-    "tree_nuts": r"almond|almonds|walnut|walnuts|cashew|cashews|pecan|pecans|pistachio|hazelnut|macadamia",
+    "crustacean_shellfish": r"crustacean|shellfish|shrimp|prawn|crab|lobster|crawfish|crayfish",
+    "tree_nuts": r"almond|almonds|walnut|walnuts|cashew|cashews|pecan|pecans|pistachios?|hazelnuts?|macadamias?|brazil nuts?|tree nuts?",
     "peanuts": r"peanut|peanuts",
     "wheat": r"wheat|semolina|spelt|bulgur",
     "soybeans": r"soy|soya|soybean|soybeans|tofu|edamame",
@@ -34,6 +35,8 @@ class RuleEngine:
         votes, reasons = [], []
 
         def vote(color, rule=None):
+            if rule:
+                color = self.rules[rule].get("color") or color
             votes.append(color)
             if rule:
                 row = self.rules[rule]
@@ -42,7 +45,7 @@ class RuleEngine:
         def threshold(key):
             return self.rules[key]["threshold"]
 
-        ingredients = (product.get("ingredients") or "").lower()
+        ingredients = (product.get("ingredients") or "").strip().lower()
         tags = set(product.get("allergen_tags") or [])
         allergens = set(person.get("allergens") or [])
         if allergens and not tags and not ingredients:
@@ -94,6 +97,68 @@ class RuleEngine:
             "verdict": verdict,
             "reasons": reasons,
             "product": product,
-            "fiber_rank_bonus": product.get("fiber_g") is not None
+            "fiber_rank_bonus": any(person.get(k) for k in ("dm", "htn", "ckd34"))
+            and product.get("fiber_g") is not None
             and product["fiber_g"] >= threshold("FIBER_RANK"),
         }
+
+
+@dataclass
+class Person:
+    dm: bool
+    htn: bool
+    ckd34: bool
+    k_limit_ordered: bool
+    allergens: list[str]
+
+
+@dataclass
+class Item:
+    sodium_mg: object = None
+    potassium_mg: object = None
+    phosphorus_mg: object = None
+    added_sugar_g: object = None
+    carb_g: object = None
+    fiber_g: object = None
+    gi: object = None
+    ingredients: str | None = None
+    allergen_tags: list[str] | None = None
+    is_drink: bool = False
+    is_juice: bool = False
+
+
+@dataclass(frozen=True)
+class Vote:
+    rule_id: str
+    color: str
+    source: str
+
+
+@dataclass(frozen=True)
+class Verdict:
+    verdict: str
+    reasons: list[Vote]
+    fiber_rank_bonus: bool
+
+
+REQUIRED_RULE_IDS = tuple(sorted(REQUIRED))
+
+
+def load_rules(conn):
+    return {row["rule_id"]: row for row in conn.execute("SELECT * FROM rules")}
+
+
+def missing_rule_ids(rules):
+    return sorted(REQUIRED - rules.keys())
+
+
+def evaluate(person: Person, item: Item | None, rules: dict) -> Verdict:
+    """Upstream dataclass interface, backed by the same clinical rules as every route."""
+    if item is None:
+        return Verdict("unknown", [], False)
+    result = RuleEngine(rules.values()).evaluate(asdict(person), asdict(item))
+    votes = [
+        Vote(r["rule_id"], rules[r["rule_id"]].get("color") or result["verdict"], r["source"])
+        for r in result["reasons"]
+    ]
+    return Verdict(result["verdict"], votes, result["fiber_rank_bonus"])

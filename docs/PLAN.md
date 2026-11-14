@@ -12,7 +12,7 @@ A dietitian has not signed the matrix. A lawyer has not said whether this pantry
 | --- | --- | --- |
 | Backend | `backend/` | `docs/prompts/backend.md` |
 | Frontend (kiosk, staff, doctor, partner) | `frontend/` | `docs/prompts/frontend.md` |
-| Mobile (aisle phone) | `mobile/` | `docs/prompts/mobile.md` |
+| Mobile (aisle phone) | `mobile/` | `docs/prompts/mobile-app.md` |
 
 The contract all three share is `docs/API.md`. The tables are `docs/schema.sql`. The 30 expected colors are `docs/golden.json`.
 

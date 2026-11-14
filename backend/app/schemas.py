@@ -67,7 +67,7 @@ class ClientPatch(Strict):
 
 
 class Arrival(Strict):
-    token: str = Field(min_length=20, max_length=256)
+    token: str = Field(max_length=256)
 
 
 class SessionBody(Strict):

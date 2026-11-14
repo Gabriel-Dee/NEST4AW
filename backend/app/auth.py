@@ -68,3 +68,10 @@ def require_role(*roles):
         return user
 
     return authorize
+
+
+TOKEN_SECONDS = 8 * 60 * 60
+
+
+def hasher():
+    return password_hash

@@ -65,3 +65,12 @@ Added only necessary documented catalog/receiving, image scan, and recommendatio
 API JSON remains usable; new fields are additive. Preserved all `rd_confirm` metadata. No fake
 clinical outcomes, model invocations, product data, or passing-test claims. Public deployment,
 production hardening, and clinical sign-off remain clearly separated from tested demo functionality.
+
+## 2026-11-14 — colleague integration
+
+User requested safe status/save, fetch/compare, merge, conflict review, and backend verification.
+Saved local work as f3684cc, fetched origin, and identified origin/main as the sole remote/default.
+Explained 12 conflicts and incompatible response/clinical/seed behavior before consolidation.
+Preserved incoming UI files, adapted alternate backend modules to one implementation, retained
+both test suites, regenerated uv/requirements locks, and tested a clean Python 3.13 installation.
+See MERGE_NOTES.md for decisions, compatibility changes, and 127-test verification evidence.

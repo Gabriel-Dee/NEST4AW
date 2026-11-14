@@ -6,7 +6,7 @@ from app.config import settings
 from app.errors import APIError
 from app.tier import derive
 
-CLIENT_SELECT = """SELECT c.id,c.user_id,c.dm,c.htn,c.ckd34,c.k_limit_ordered,c.household_size,c.tier_id,
+CLIENT_SELECT = """SELECT c.id,c.user_id,(SELECT email FROM users WHERE id=c.user_id) AS email,c.dm,c.htn,c.ckd34,c.k_limit_ordered,c.household_size,c.tier_id,
 pgp_sym_decrypt(c.legal_name_enc,%s) AS legal_name,
 CASE WHEN c.phone_enc IS NOT NULL THEN pgp_sym_decrypt(c.phone_enc,%s) END AS phone,
 ARRAY(SELECT icd10 FROM conditions WHERE client_id=c.id ORDER BY icd10) AS icd10,
@@ -70,9 +70,11 @@ def enroll(conn, body):
         conn.execute("INSERT INTO conditions VALUES(%s,%s)", (cid, code))
     for code in sorted(set(body.allergens)):
         conn.execute("INSERT INTO client_allergens VALUES(%s,%s)", (cid, code))
+    raw = issue_card(conn, cid)
     return {
         **read_client(conn, cid),
-        "token": issue_card(conn, cid),
+        "token": raw,
+        "card_token": raw,
         "token_status": "active",
         "warnings": flags["warnings"],
     }

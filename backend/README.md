@@ -230,3 +230,30 @@ Reports read only `analytics_public`; they contain no identifying medical fields
 no longitudinal clinical measurement table, so no outcome improvements or causation are invented.
 
 See [deployment handoff](DEPLOYMENT.md) for Docker, a public HTTPS demo, and private inference.
+
+
+## Merged uv workflow
+
+The `uv.lock` from `origin/main` has been regenerated for the union of dependencies. To use it:
+
+```bash
+uv sync --frozen --group dev
+uv run python -m seed.load
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log
+```
+
+The factory entrypoint remains supported. `DATABASE_URL` controls the database port; no
+colleague-specific 5433 setting is hardcoded. Existing local `.env` keys and database data
+are retained. The merged seed is idempotent and **does not drop the schema**.
+`requirements.lock` is exported from the same uv lock (core + dev, without OCR), so the Docker
+and uv workflows agree. To regenerate after dependency edits:
+
+```bash
+uv lock
+uv export --frozen --no-emit-project --no-hashes --no-header --group dev --output-file requirements.lock
+```
+
+The colleague's tests live in `tests/upstream/`; they run against the same implementation,
+with isolated test fixtures. The merged response aliases and optional summary formats are
+listed in `../docs/API.md`. Source checkout and authoritative `docs/` assets remain required
+for database initialization; the wheel is not a standalone schema distribution.

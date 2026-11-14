@@ -99,6 +99,14 @@ def seed(conn):
     return cards
 
 
+def load_products(conn, foods):
+    """Compatibility entry point for the incoming seed/test helpers; never clears existing data."""
+    for index, food in enumerate(foods):
+        pid = insert_product(conn, food)
+        if pid:
+            stock_demo(conn, pid, index, food.get("category") == "produce")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(

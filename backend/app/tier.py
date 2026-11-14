@@ -1,4 +1,5 @@
 import re
+from dataclasses import dataclass, field
 
 from app.errors import APIError
 
@@ -30,3 +31,27 @@ def derive(codes):
         else []
     )
     return dict(dm=dm, htn=htn, ckd34=ckd, tier_id=tier_of(dm, htn, ckd), warnings=warnings)
+
+
+class OutsideMatrix(Exception):
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(code)
+
+
+@dataclass
+class TierFlags:
+    dm: bool
+    htn: bool
+    ckd34: bool
+    tier_id: str | None
+    warnings: list[str] = field(default_factory=list)
+
+
+def flags_from_icd(codes):
+    try:
+        return TierFlags(**derive(codes))
+    except APIError as exc:
+        if exc.code == "outside_matrix":
+            raise OutsideMatrix(next(c for c in codes if c.upper() in {"N18.5", "N18.6"})) from exc
+        raise

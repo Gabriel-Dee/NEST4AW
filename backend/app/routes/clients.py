@@ -138,4 +138,4 @@ def reissue(body: Reissue, conn=Depends(connection, scope="function")):
     )
     raw = issue_card(conn, body.client_id)
     advance(conn)
-    return {"client_id": body.client_id, "token": raw}
+    return {"client_id": body.client_id, "token": raw, "card_token": raw}

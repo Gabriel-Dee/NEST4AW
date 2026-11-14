@@ -1,7 +1,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -11,9 +11,8 @@ from psycopg_pool import ConnectionPool, PoolTimeout
 from starlette.exceptions import HTTPException
 
 from app.config import settings
-from app.db import connection
 from app.errors import APIError
-from app.routes import accounts, ai, clients, products, warehouse
+from app.routes import accounts, ai, clients, health, products, warehouse
 from app.rules import RuleEngine
 
 
@@ -54,7 +53,10 @@ def create_app():
 
     @app.exception_handler(APIError)
     async def domain_error(request, exc):
-        return error(exc.status, exc.code, exc.message)
+        code = exc.code
+        if code == "session_inactive" and request.query_params.get("response_format") == "summary":
+            code = "session_not_active"
+        return error(exc.status, code, exc.message)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
@@ -87,11 +89,13 @@ def create_app():
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
 
-    @app.get("/health")
-    def health(conn=Depends(connection, scope="function")):
-        conn.execute("SELECT 1")
-        return {"ok": True}
-
-    for module in (accounts, clients, warehouse, ai, products):
+    for module in (health, accounts, clients, warehouse, ai, products):
         app.include_router(module.router)
     return app
+
+
+def __getattr__(name):
+    # Preserve `uvicorn app.main:app` without loading configuration during ordinary imports.
+    if name == "app":
+        return create_app()
+    raise AttributeError(name)
