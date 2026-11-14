@@ -1,79 +1,81 @@
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useEffect, useState } from 'react';
+import { ScrollView, StyleSheet, Text, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Circle } from 'react-native-svg';
 
-import { getSession } from '../../services/api';
+import { checkIn, isCheckedIn, restoreSession } from '../../services/api';
 import { PrimaryButton } from '../components/ui';
 import { theme } from '../theme';
 
-type Home = Awaited<ReturnType<typeof getSession>>;
-
-function Ring({ picked, goal }: { picked: number; goal: number }) {
-  const size = 96;
-  const stroke = 10;
-  const radius = (size - stroke) / 2;
-  const circ = 2 * Math.PI * radius;
-  const ratio = goal === 0 ? 0 : Math.min(picked / goal, 1);
-  return (
-    <View style={styles.ringWrap} accessibilityLabel={`${picked} of ${goal} healthy picks today`}>
-      <Svg width={size} height={size}>
-        <Circle cx={size / 2} cy={size / 2} r={radius} stroke={theme.line} strokeWidth={stroke} fill="none" />
-        <Circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          stroke={theme.green}
-          strokeWidth={stroke}
-          fill="none"
-          strokeDasharray={`${circ} ${circ}`}
-          strokeDashoffset={circ * (1 - ratio)}
-          strokeLinecap="round"
-          rotation="-90"
-          origin={`${size / 2}, ${size / 2}`}
-        />
-      </Svg>
-      <Text style={styles.ringLabel}>
-        {picked} of {goal}
-        {'\n'}
-        healthy picks today
-      </Text>
-    </View>
-  );
-}
-
-export default function WelcomeScreen() {
+export default function CheckInScreen() {
   const router = useRouter();
-  const [home, setHome] = useState<Home | null>(null);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [clientCode, setClientCode] = useState('');
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      let active = true;
-      getSession().then((next) => {
-        if (active) setHome(next);
-      });
-      return () => {
-        active = false;
-      };
-    }, []),
-  );
+  useEffect(() => {
+    restoreSession();
+    if (isCheckedIn()) router.replace('/(tabs)/list');
+  }, [router]);
+
+  async function onCheckIn() {
+    setBusy(true);
+    setMessage('');
+    const result = await checkIn({ firstName, lastName, clientCode });
+    setBusy(false);
+    if (!result.ok) {
+      setMessage(result.message);
+      return;
+    }
+    router.replace('/(tabs)/list');
+  }
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.kicker}>Epic Cure</Text>
-        <Text style={styles.title}>Hi {home?.firstName ?? 'there'}</Text>
-        <View style={styles.plan}>
-          <Text style={styles.planText}>{home?.planBadge ?? 'Your plan'}</Text>
-        </View>
-        <Text style={styles.body}>Household of {home?.householdSize ?? 3}</Text>
-        <Text style={styles.body}>{home?.conditionsLabel}</Text>
-        <View style={styles.streak}>
-          <Text style={styles.streakText}>{home?.streakLabel ?? '3 visits with healthy carts'}</Text>
-        </View>
-        <Ring picked={home?.greensInCart ?? 0} goal={home?.greenGoal ?? 0} />
-        <PrimaryButton label="Start Shopping" onPress={() => router.push('/(tabs)/list')} />
+        <Text style={styles.title}>Check in</Text>
+        <Text style={styles.body}>
+          Enter your name and the card token from your card. After that you will see foods picked for you.
+        </Text>
+        <Text style={styles.label}>First name</Text>
+        <TextInput
+          value={firstName}
+          onChangeText={setFirstName}
+          autoCapitalize="words"
+          accessibilityLabel="First name"
+          style={styles.input}
+          placeholder="Maria"
+          placeholderTextColor={theme.muted}
+        />
+        <Text style={styles.label}>Last name</Text>
+        <TextInput
+          value={lastName}
+          onChangeText={setLastName}
+          autoCapitalize="words"
+          accessibilityLabel="Last name"
+          style={styles.input}
+          placeholder="Optional"
+          placeholderTextColor={theme.muted}
+        />
+        <Text style={styles.label}>Client code</Text>
+        <TextInput
+          value={clientCode}
+          onChangeText={setClientCode}
+          autoCapitalize="none"
+          accessibilityLabel="Client code"
+          style={styles.input}
+          placeholder="Card token from enrollment"
+          placeholderTextColor={theme.muted}
+        />
+        {message ? <Text style={styles.error}>{message}</Text> : null}
+        <PrimaryButton label={busy ? 'Checking…' : 'Check in'} onPress={onCheckIn} disabled={busy} />
+        <Text style={styles.hint}>
+          Use the card token from enrollment. For a client login without a card, put the email in Client
+          code and the password in Last name.
+        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -83,27 +85,19 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: theme.bg },
   content: { padding: 20, paddingBottom: 40 },
   kicker: { fontSize: 16, fontWeight: '700', color: theme.green, marginBottom: 8 },
-  title: { fontSize: 36, fontWeight: '700', color: theme.ink },
-  plan: {
-    alignSelf: 'flex-start',
-    backgroundColor: theme.greenSoft,
-    borderRadius: 999,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    marginVertical: 12,
+  title: { fontSize: 36, fontWeight: '700', color: theme.ink, marginBottom: 8 },
+  body: { fontSize: theme.body, color: theme.ink, marginBottom: 16, lineHeight: 24 },
+  label: { fontSize: theme.body, fontWeight: '700', color: theme.ink, marginBottom: 6, marginTop: 8 },
+  input: {
     minHeight: theme.tap,
-    justifyContent: 'center',
-  },
-  planText: { fontSize: theme.body, fontWeight: '700', color: theme.green },
-  body: { fontSize: theme.body, color: theme.ink, marginBottom: 6 },
-  streak: {
-    marginTop: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: theme.line,
     backgroundColor: theme.card,
-    borderRadius: theme.radius,
-    padding: 14,
-    ...theme.shadow,
+    paddingHorizontal: 14,
+    fontSize: theme.body,
+    color: theme.ink,
   },
-  streakText: { fontSize: theme.body, fontWeight: '700', color: theme.ink },
-  ringWrap: { alignItems: 'center', marginVertical: 20, gap: 8 },
-  ringLabel: { fontSize: theme.body, textAlign: 'center', color: theme.ink, fontWeight: '600' },
+  error: { fontSize: theme.body, color: theme.red, marginTop: 12, fontWeight: '600' },
+  hint: { fontSize: theme.body, color: theme.muted, marginTop: 16 },
 });
