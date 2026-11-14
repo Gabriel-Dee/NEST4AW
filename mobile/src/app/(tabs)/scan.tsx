@@ -1,10 +1,11 @@
+import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { PrimaryButton } from '../../components/ui';
+import { isInStore } from '../../../services/api';
+import { Button, Card, EmptyState, Screen, ui } from '../../components/ui';
 import { theme } from '../../theme';
 
 export default function ScanScreen() {
@@ -12,94 +13,118 @@ export default function ScanScreen() {
   const params = useLocalSearchParams<{ code?: string }>();
   const [permission, requestPermission] = useCameraPermissions();
   const [code, setCode] = useState(typeof params.code === 'string' ? params.code : '');
-  const [locked, setLocked] = useState(false);
+  const [focused, setFocused] = useState(true);
+  const [inStore, setInStore] = useState(isInStore());
+  // The camera reports one barcode many times per second; a ref locks synchronously.
+  const lock = useRef(false);
 
-  function openResult(sku: string) {
-    const next = sku.trim();
-    if (!next || locked) return;
-    setLocked(true);
-    router.push({ pathname: '/scan-result', params: { sku: next } });
-    setTimeout(() => setLocked(false), 800);
+  // Tabs stay mounted: only run the camera while this tab is on screen.
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      setInStore(isInStore());
+      lock.current = false;
+      return () => setFocused(false);
+    }, []),
+  );
+
+  function openResult(raw: string) {
+    const next = raw.trim();
+    if (!next || lock.current) return;
+    lock.current = true;
+    router.navigate({ pathname: '/(tabs)/scan-result', params: { sku: next } });
+  }
+
+  if (!inStore) {
+    return (
+      <Screen title="Scan">
+        <Card>
+          <EmptyState
+            icon="storefront-outline"
+            title="Check in to start scanning"
+            body="Scanning checks each item against your health plan and today's stock at the store you're in."
+            action={{ label: 'Check in at store', icon: 'qr-code-outline', onPress: () => router.navigate('/(tabs)/check-in') }}
+          />
+        </Card>
+      </Screen>
+    );
   }
 
   return (
-    <View style={styles.fill}>
-      {permission?.granted ? (
-        <CameraView
-          style={styles.fill}
-          facing="back"
-          barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'qr'] }}
-          onBarcodeScanned={({ data }) => openResult(data)}
-        />
-      ) : (
-        <View style={styles.permission}>
-          <Text style={styles.permissionText}>The camera reads the barcode. You can also type the code.</Text>
-          <PrimaryButton label="Allow camera" onPress={() => requestPermission()} />
+    <Screen title="Scan an item" subtitle="Point the camera at the barcode on the package.">
+      <View style={styles.viewport}>
+        {permission?.granted && focused ? (
+          <CameraView
+            style={StyleSheet.absoluteFill}
+            facing="back"
+            barcodeScannerSettings={{ barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'qr'] }}
+            onBarcodeScanned={({ data }) => openResult(data)}
+          />
+        ) : (
+          <View style={styles.cameraOff}>
+            <Ionicons name="camera-outline" size={40} color={theme.white} />
+            <Text style={styles.cameraOffText}>
+              {permission?.granted ? 'Camera paused' : 'Allow the camera to scan barcodes.'}
+            </Text>
+            {!permission?.granted ? <Button variant="onBrand" icon="camera" label="Allow camera" onPress={() => requestPermission()} /> : null}
+          </View>
+        )}
+        {/* Corner guides, inside the viewport so they never cover text. */}
+        <View pointerEvents="none" style={styles.guides}>
+          <View style={[styles.corner, styles.tl]} />
+          <View style={[styles.corner, styles.tr]} />
+          <View style={[styles.corner, styles.bl]} />
+          <View style={[styles.corner, styles.br]} />
         </View>
-      )}
-      <View style={styles.frame} pointerEvents="none" />
-      <SafeAreaView style={styles.sheet}>
-        <Text style={styles.sheetTitle}>Type item code instead</Text>
+      </View>
+
+      <Card>
+        <Text style={ui.rowTitle}>No camera? Type the barcode</Text>
+        <Text style={ui.rowSub}>The numbers under the barcode, or the item code on the shelf tag.</Text>
         <TextInput
           value={code}
           onChangeText={setCode}
           autoCapitalize="characters"
-          placeholder="BEANS, RICE, or SOUP"
+          keyboardType="default"
+          returnKeyType="search"
+          onSubmitEditing={() => openResult(code)}
+          placeholder="e.g. 051000012517"
           placeholderTextColor={theme.muted}
           style={styles.input}
-          accessibilityLabel="Item code"
+          accessibilityLabel="Barcode or item code"
         />
-        <Pressable style={styles.go} onPress={() => openResult(code)} accessibilityRole="button">
-          <Text style={styles.goText}>Look up this code</Text>
+        <Button icon="search" label="Look up item" onPress={() => openResult(code)} disabled={!code.trim()} />
+      </Card>
+
+      {__DEV__ ? (
+        <Pressable onPress={() => router.navigate('/(tabs)/scan-test-log')} accessibilityRole="button" style={styles.devLink}>
+          <Text style={ui.sectionAction}>Scan test log (dev)</Text>
         </Pressable>
-      </SafeAreaView>
-    </View>
+      ) : null}
+    </Screen>
   );
 }
 
+const C = 34;
 const styles = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: '#111' },
-  frame: {
-    position: 'absolute',
-    top: '22%',
-    left: '12%',
-    right: '12%',
-    height: 180,
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    borderRadius: 16,
-  },
-  permission: { flex: 1, backgroundColor: theme.bg, justifyContent: 'center', padding: 24 },
-  permissionText: { fontSize: theme.body, color: theme.ink, marginBottom: 12 },
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: theme.card,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 16,
-  },
-  sheetTitle: { fontSize: 18, fontWeight: '700', color: theme.ink },
+  viewport: { height: 300, borderRadius: theme.radius, overflow: 'hidden', backgroundColor: '#14201a' },
+  cameraOff: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: theme.space.md, padding: theme.space.xl },
+  cameraOffText: { color: theme.white, fontSize: theme.type.body, fontWeight: '600', textAlign: 'center' },
+  guides: { position: 'absolute', top: 36, left: 36, right: 36, bottom: 36 },
+  corner: { position: 'absolute', width: C, height: C, borderColor: theme.white },
+  tl: { top: 0, left: 0, borderTopWidth: 4, borderLeftWidth: 4, borderTopLeftRadius: 14 },
+  tr: { top: 0, right: 0, borderTopWidth: 4, borderRightWidth: 4, borderTopRightRadius: 14 },
+  bl: { bottom: 0, left: 0, borderBottomWidth: 4, borderLeftWidth: 4, borderBottomLeftRadius: 14 },
+  br: { bottom: 0, right: 0, borderBottomWidth: 4, borderRightWidth: 4, borderBottomRightRadius: 14 },
   input: {
-    minHeight: theme.tap,
+    minHeight: 52,
+    borderRadius: theme.radiusSm,
     borderWidth: 1,
     borderColor: theme.line,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    fontSize: theme.body,
+    paddingHorizontal: theme.space.lg,
+    fontSize: 18,
     color: theme.ink,
-    marginTop: 8,
     backgroundColor: theme.bg,
   },
-  go: {
-    minHeight: theme.tap,
-    marginTop: 8,
-    borderRadius: 12,
-    backgroundColor: theme.green,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  goText: { color: theme.white, fontSize: 18, fontWeight: '700' },
+  devLink: { alignSelf: 'center', minHeight: 44, justifyContent: 'center' },
 });

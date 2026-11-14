@@ -1,277 +1,147 @@
 "use client";
 
+import { Download } from "lucide-react";
+
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Progress } from "@/components/ui/progress";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { mockApi } from "@/lib/mock/api";
-import type { AnalyticsKpis, AnalyticsPoint } from "@/lib/types";
-import { Download } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { dispensedReport, type ReportRow } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+import { FormEvent, useState } from "react";
 
-type LoadState = "loading" | "ready" | "empty" | "error";
-
-const GRANT_STREAMS = [
-  "SNAP-Ed",
-  "TEFAP",
-  "CSFP",
-  "Private foundation",
-] as const;
-
-function BarChart({
-  title,
-  points,
-}: {
-  title: string;
-  points: AnalyticsPoint[];
-}) {
-  const max = Math.max(...points.map((p) => p.value), 1);
-  return (
-    <Card className="rounded-2xl">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        {points.map((p) => (
-          <div key={p.label} className="space-y-1">
-            <div className="flex justify-between text-xs">
-              <span>{p.label}</span>
-              <span className="tabular-nums text-muted-foreground">
-                {p.value.toLocaleString()}
-              </span>
-            </div>
-            <div className="h-2.5 overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full rounded-full bg-primary transition-all"
-                style={{ width: `${(p.value / max) * 100}%` }}
-              />
-            </div>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  );
+function day(offset: number) {
+  const date = new Date();
+  date.setDate(date.getDate() + offset);
+  const z = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${z(date.getMonth() + 1)}-${z(date.getDate())}`;
 }
 
-export default function AnalyticsPage() {
-  const [state, setState] = useState<LoadState>("loading");
-  const [error, setError] = useState<string | null>(null);
-  const [kpis, setKpis] = useState<AnalyticsKpis | null>(null);
-  const [trend3, setTrend3] = useState<AnalyticsPoint[]>([]);
-  const [trend6, setTrend6] = useState<AnalyticsPoint[]>([]);
-  const [byCondition, setByCondition] = useState<AnalyticsPoint[]>([]);
-  const [grantStream, setGrantStream] =
-    useState<(typeof GRANT_STREAMS)[number]>("SNAP-Ed");
+/** Anonymized aggregates only, so this file is safe to send to funders. */
+function downloadCsv(rows: ReportRow[], from: string, to: string) {
+  const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const body = [["day", "diet_tier", "grant", "units", "pounds"], ...rows.map((r) => [r.day, r.tier_id, r.grant_id, r.units, r.pounds])]
+    .map((line) => line.map(esc).join(","))
+    .join("\n");
+  const url = URL.createObjectURL(new Blob([body], { type: "text/csv" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `epic-cure-distribution_${from || "start"}_${to || "today"}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
-  const load = useCallback(async (mode: "ok" | "empty" | "error" = "ok") => {
-    setState("loading");
+export default function ReportPage() {
+  const { user } = useAuth();
+  const [from, setFrom] = useState(day(-30));
+  const [to, setTo] = useState(day(0));
+  const [rows, setRows] = useState<ReportRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const totals = {
+    units: rows.reduce((n, r) => n + (Number(r.units) || 0), 0),
+    pounds: rows.reduce((n, r) => n + (Number(r.pounds) || 0), 0),
+    grants: new Set(rows.map((r) => r.grant_id)).size,
+    days: new Set(rows.map((r) => r.day)).size,
+  };
+
+  async function load(e?: FormEvent) {
+    e?.preventDefault();
+    if (!user || (user.role !== "admin" && user.role !== "community_partner")) return;
+    setBusy(true);
     setError(null);
     try {
-      if (mode === "error") throw new Error("Analytics unavailable");
-      if (mode === "empty") {
-        setKpis(null);
-        setTrend3([]);
-        setTrend6([]);
-        setByCondition([]);
-        setState("empty");
-        return;
-      }
-      const data = await mockApi.getAnalytics();
-      setKpis(data.kpis);
-      setTrend3(data.trend3);
-      setTrend6(data.trend6);
-      setByCondition(data.byCondition);
-      setState("ready");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Load failed");
-      setState("error");
+      setRows(await dispensedReport(from, to));
+    } catch (err) {
+      setRows([]);
+      setError(err instanceof Error ? err.message : "Could not load the report");
+    } finally {
+      setBusy(false);
     }
-  }, []);
-
-  useEffect(() => {
-    const t = window.setTimeout(() => void load("ok"), 0);
-    return () => window.clearTimeout(t);
-  }, [load]);
-
-  function exportCsv() {
-    if (!kpis) return;
-    const rows = [
-      ["grant_stream", "metric", "value"],
-      [grantStream, "clients_served", String(kpis.clients_served)],
-      [grantStream, "pounds_distributed", String(kpis.pounds_distributed)],
-      [grantStream, "green_pct", String(kpis.green_pct)],
-      ...trend6.map((p) => [grantStream, `trend6_${p.label}`, String(p.value)]),
-      ...byCondition.map((p) => [
-        grantStream,
-        `condition_${p.label.replace(/\s+/g, "_")}`,
-        String(p.value),
-      ]),
-    ];
-    const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `grant-report-${grantStream.replace(/\s+/g, "-").toLowerCase()}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   return (
-      <div className="space-y-6">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
-            <p className="text-sm text-muted-foreground">
-              Anonymized program KPIs — no client names
-            </p>
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-xl"
-              onClick={() => void load("ok")}
-            >
-              Reload
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-xl"
-              onClick={() => void load("empty")}
-            >
-              Simulate empty
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="rounded-xl"
-              onClick={() => void load("error")}
-            >
-              Simulate error
-            </Button>
-          </div>
+    <div className="space-y-6">
+      <p className="max-w-3xl text-muted-foreground">
+        Food distributed by day, diet tier and grant. Totals only: no client names or IDs ever appear here.
+      </p>
+      <form className="flex flex-wrap items-end gap-3" onSubmit={load}>
+        <div className="space-y-1.5">
+          <Label htmlFor="from">From</Label>
+          <Input id="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="h-10 rounded-xl" />
         </div>
-
-        {state === "loading" && (
-          <div className="grid gap-4 sm:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-28 rounded-2xl" />
-            ))}
+        <div className="space-y-1.5">
+          <Label htmlFor="to">To</Label>
+          <Input id="to" type="date" value={to} onChange={(e) => setTo(e.target.value)} className="h-10 rounded-xl" />
+        </div>
+        <Button type="submit" className="rounded-xl" disabled={busy}>
+          {busy ? "Loading…" : "Show report"}
+        </Button>
+        <Button type="button" variant="outline" className="gap-2 rounded-xl" disabled={rows.length === 0} onClick={() => downloadCsv(rows, from, to)}>
+          <Download className="size-4" aria-hidden />
+          Download CSV
+        </Button>
+      </form>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          ["Units distributed", totals.units.toLocaleString()],
+          ["Pounds distributed", totals.pounds.toLocaleString(undefined, { maximumFractionDigits: 1 })],
+          ["Grants", String(totals.grants)],
+          ["Days with distribution", String(totals.days)],
+        ].map(([label, value]) => (
+          <div key={label} className="rounded-2xl border bg-card p-5">
+            <p className="text-2xl font-semibold tabular-nums">{value}</p>
+            <p className="text-sm text-muted-foreground">{label}</p>
           </div>
-        )}
-
-        {state === "error" && (
-          <Alert variant="destructive">
-            <AlertTitle>Error</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-
-        {state === "empty" && (
-          <Card className="rounded-2xl">
-            <CardContent className="py-12 text-center text-sm text-muted-foreground">
-              No analytics data for this period
-            </CardContent>
-          </Card>
-        )}
-
-        {state === "ready" && kpis && (
-          <>
-            <div className="grid gap-4 sm:grid-cols-3">
-              <Card className="rounded-2xl">
-                <CardHeader className="pb-2">
-                  <CardDescription>Clients served</CardDescription>
-                  <CardTitle className="text-3xl tabular-nums">
-                    {kpis.clients_served.toLocaleString()}
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-              <Card className="rounded-2xl">
-                <CardHeader className="pb-2">
-                  <CardDescription>Pounds distributed</CardDescription>
-                  <CardTitle className="text-3xl tabular-nums">
-                    {kpis.pounds_distributed.toLocaleString()}
-                  </CardTitle>
-                </CardHeader>
-              </Card>
-              <Card className="rounded-2xl">
-                <CardHeader className="pb-2">
-                  <CardDescription>% green scans</CardDescription>
-                  <CardTitle className="text-3xl tabular-nums">
-                    {kpis.green_pct}%
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <Progress value={kpis.green_pct} />
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <BarChart title="3-month pounds trend" points={trend3} />
-              <BarChart title="6-month pounds trend" points={trend6} />
-            </div>
-            <BarChart title="Pounds by condition" points={byCondition} />
-
-            <Card className="rounded-2xl">
-              <CardHeader>
-                <CardTitle className="text-lg">Export grant report</CardTitle>
-                <CardDescription>
-                  CSV of anonymized aggregates for the selected grant stream
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex flex-wrap items-end gap-3">
-                <div className="w-56 space-y-1.5">
-                  <Label>Grant stream</Label>
-                  <Select
-                    value={grantStream}
-                    onValueChange={(v) =>
-                      setGrantStream(
-                        (v as (typeof GRANT_STREAMS)[number]) ?? "SNAP-Ed",
-                      )
-                    }
-                  >
-                    <SelectTrigger className="h-10 w-full rounded-xl">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {GRANT_STREAMS.map((s) => (
-                        <SelectItem key={s} value={s}>
-                          {s}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button
-                  className="gap-2 rounded-xl"
-                  onClick={exportCsv}
-                  type="button"
-                >
-                  <Download className="size-4" />
-                  Export CSV
-                </Button>
-              </CardContent>
-            </Card>
-          </>
-        )}
+        ))}
       </div>
+      {error ? (
+        <Alert variant="destructive">
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      <div className="overflow-x-auto rounded-2xl border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Day</TableHead>
+              <TableHead>Diet tier</TableHead>
+              <TableHead>Grant</TableHead>
+              <TableHead className="text-right">Units</TableHead>
+              <TableHead className="text-right">Pounds</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="py-10 text-center text-muted-foreground">
+                  {busy ? "Loading…" : "Choose a date range and select Show report."}
+                </TableCell>
+              </TableRow>
+            ) : (
+              rows.map((row, index) => (
+                <TableRow key={`${row.day}-${row.tier_id}-${row.grant_id}-${index}`}>
+                  <TableCell>{row.day}</TableCell>
+                  <TableCell>{row.tier_id}</TableCell>
+                  <TableCell>{row.grant_id}</TableCell>
+                  <TableCell className="text-right tabular-nums">{row.units}</TableCell>
+                  <TableCell className="text-right tabular-nums">{row.pounds}</TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
   );
 }

@@ -1,128 +1,241 @@
+import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
 
 import {
   getRecommendations,
   getSession,
-  isInStore,
-  logout,
-  type Group,
+  getVisitHistory,
+  leaveStore,
+  listStores,
+  refreshCurrentVisit,
   type Product,
+  type StoreRow,
+  type VisitRow,
 } from '../../../services/api';
-import { OfflineBanner, PrimaryButton, ProductCard, ScreenTitle } from '../../components/ui';
+import { Banner, Button, Card, Chip, ListRow, Loading, ProductCard, Screen, Section, ui } from '../../components/ui';
 import { theme } from '../../theme';
 
-const groups: Group[] = ['Produce', 'Proteins', 'Dairy', 'Grains', 'Pantry'];
+// Used when location is off or denied: Epic Cure main warehouse, St. Augustine.
+const ST_AUG = { latitude: 29.8947, longitude: -81.3145 };
 
-export default function ListScreen() {
+function greeting() {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+}
+
+function distanceText(m?: number) {
+  if (m == null) return '';
+  const miles = m / 1609.34;
+  return miles < 0.1 ? 'Here' : `${miles.toFixed(1)} mi`;
+}
+
+function visitDate(iso: string) {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+export default function HomeScreen() {
   const router = useRouter();
-  const [items, setItems] = useState<Product[] | null>(null);
   const [home, setHome] = useState<Awaited<ReturnType<typeof getSession>> | null>(null);
-  const [inStore, setInStore] = useState(false);
+  const [visit, setVisit] = useState<Awaited<ReturnType<typeof refreshCurrentVisit>>>(null);
+  const [stores, setStores] = useState<StoreRow[] | null>(null);
+  const [history, setHistory] = useState<VisitRow[]>([]);
+  const [picks, setPicks] = useState<Product[]>([]);
+  const [here, setHere] = useState(ST_AUG);
+  const [usingFallback, setUsingFallback] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+
+  const load = useCallback(async () => {
+    let coords = ST_AUG;
+    try {
+      const perm = await Location.getForegroundPermissionsAsync();
+      const granted = perm.granted || (perm.canAskAgain && (await Location.requestForegroundPermissionsAsync()).granted);
+      if (granted) {
+        const pos = await Location.getLastKnownPositionAsync();
+        if (pos) coords = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+      }
+    } catch {
+      /* location is optional */
+    }
+    setUsingFallback(coords === ST_AUG);
+    setHere(coords);
+    const [session, current] = await Promise.all([getSession(), refreshCurrentVisit()]);
+    setHome(session);
+    setVisit(current);
+    const [nearby, past, recs] = await Promise.all([
+      listStores(coords.latitude, coords.longitude).catch(() => [] as StoreRow[]),
+      getVisitHistory().catch(() => [] as VisitRow[]),
+      current ? getRecommendations().catch(() => [] as Product[]) : Promise.resolve([] as Product[]),
+    ]);
+    setStores(nearby);
+    setHistory(past);
+    setPicks(recs.filter((p) => p.verdict === 'green').slice(0, 4));
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
-      let active = true;
-      setInStore(isInStore());
-      Promise.all([getRecommendations(), getSession()]).then(([next, session]) => {
-        if (!active) return;
-        setItems(next);
-        setHome(session);
-      });
-      return () => {
-        active = false;
-      };
-    }, []),
+      void load();
+    }, [load]),
   );
 
+  async function onRefresh() {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }
+
+  async function onLeave() {
+    setLeaving(true);
+    try {
+      await leaveStore();
+    } finally {
+      setLeaving(false);
+      void load();
+    }
+  }
+
+  const name = home?.firstName && home.firstName !== 'there' ? home.firstName : '';
+
   return (
-    <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.hello}>Hi {home?.firstName ?? 'there'}</Text>
-        <View style={styles.plan}>
-          <Text style={styles.planText}>{home?.planBadge ?? 'Your plan'}</Text>
+    <Screen refreshing={refreshing} onRefresh={onRefresh}>
+      {/* Greeting + plan */}
+      <View style={styles.hero}>
+        <View style={ui.fill}>
+          <Text style={styles.greet}>{greeting()}</Text>
+          <Text style={ui.h1} accessibilityRole="header">
+            {name ? `${name}` : 'Welcome'}
+          </Text>
         </View>
-        <Text style={styles.body}>{home?.planLine}</Text>
-        <Text style={styles.body}>Household of {home?.householdSize ?? ''}</Text>
-        {home && home.allergies.length > 0 ? <Text style={styles.body}>Allergies: {home.allergies.join(', ')}</Text> : null}
-        {home && home.preferences.length > 0 ? <Text style={styles.body}>Also: {home.preferences.join(', ')}</Text> : null}
+        <Pressable onPress={() => router.navigate('/(tabs)/profile')} accessibilityRole="button" accessibilityLabel="Open profile" style={styles.avatar}>
+          <Text style={styles.avatarText}>{(name || '?').slice(0, 1).toUpperCase()}</Text>
+        </Pressable>
+      </View>
+      <View style={styles.chips}>
+        {home?.planBadge ? <Chip icon="medkit-outline" label={home.planBadge} /> : null}
+        {home ? <Chip tone="neutral" icon="people-outline" label={`Household of ${home.householdSize}`} /> : null}
+      </View>
 
-        {inStore ? (
-          <View style={styles.pill}>
-            <Text style={styles.pillText}>You are checked in at the store</Text>
-          </View>
-        ) : (
-          <PrimaryButton
-            label="Check in at store"
-            onPress={() => router.push('/check-in')}
-          />
-        )}
-        <Text style={styles.body}>
-          Scan the QR on the staff kiosk screen to start shopping. Then use Scan for product barcodes.
-        </Text>
-
-        <PrimaryButton label="Dietary safety" tone="quiet" onPress={() => router.push('/(tabs)/safety')} />
-        <PrimaryButton
-          label="Log out"
-          tone="quiet"
-          onPress={() => {
-            logout();
-            router.replace('/');
-          }}
-        />
-        <ScreenTitle>Picked for you</ScreenTitle>
-        <OfflineBanner />
-        <View style={styles.note}>
-          <Text style={styles.noteText}>Picked for you based on what's in stock today.</Text>
-        </View>
-        {items === null ? <Text style={styles.body}>Gathering today's list…</Text> : null}
-        {groups.map((group) => {
-          const rows = (items ?? []).filter((item) => item.group === group);
-          if (rows.length === 0) return null;
-          return (
-            <View key={group}>
-              <Text style={styles.group}>{group}</Text>
-              {rows.map((item) => (
-                <ProductCard
-                  key={item.sku}
-                  product={item}
-                  onPress={() => router.push({ pathname: '/scan-result', params: { sku: item.sku } })}
-                />
-              ))}
+      {/* Visit status — the one primary action on this screen */}
+      {visit ? (
+        <Card tone="brand">
+          <View style={styles.visitHead}>
+            <Ionicons name="storefront" size={26} color={theme.white} />
+            <View style={ui.fill}>
+              <Text style={styles.visitKicker}>You’re checked in</Text>
+              <Text style={styles.visitStore}>{visit.storeName || 'Epic Cure'}</Text>
             </View>
-          );
-        })}
-      </ScrollView>
-    </SafeAreaView>
+          </View>
+          <Button variant="onBrand" icon="scan" label="Scan an item" onPress={() => router.navigate('/(tabs)/scan')} />
+          <Pressable onPress={onLeave} disabled={leaving} accessibilityRole="button" style={styles.leave}>
+            <Text style={styles.leaveText}>{leaving ? 'Leaving…' : 'Leave store'}</Text>
+          </Pressable>
+        </Card>
+      ) : (
+        <Card>
+          <View style={styles.visitHead}>
+            <View style={styles.visitIcon}>
+              <Ionicons name="qr-code-outline" size={24} color={theme.green} />
+            </View>
+            <View style={ui.fill}>
+              <Text style={ui.rowTitle}>Ready to shop?</Text>
+              <Text style={ui.rowSub}>At the store, scan the QR code on the kiosk screen to check in.</Text>
+            </View>
+          </View>
+          <Button icon="scan" label="Check in at store" onPress={() => router.navigate('/(tabs)/check-in')} />
+        </Card>
+      )}
+
+      {/* Picked for you (only while in a store — it is based on that store's stock) */}
+      {visit && picks.length > 0 ? (
+        <Section title="Picked for you" action={{ label: 'Scan', onPress: () => router.navigate('/(tabs)/scan') }}>
+          {picks.map((item) => (
+            <ProductCard key={item.sku} product={item} onPress={() => router.navigate({ pathname: '/(tabs)/scan-result', params: { sku: item.sku } })} />
+          ))}
+        </Section>
+      ) : null}
+
+      {/* Nearby stores */}
+      <Section title="Stores near you">
+        {usingFallback ? <Banner tone="info" icon="location-outline" text="Showing stores near St. Augustine. Turn on location for stores near you." /> : null}
+        <View style={styles.mapWrap}>
+          <MapView
+            style={styles.map}
+            initialRegion={{ ...here, latitudeDelta: 0.12, longitudeDelta: 0.12 }}
+            region={{ ...here, latitudeDelta: 0.12, longitudeDelta: 0.12 }}
+            showsUserLocation={!usingFallback}
+            accessibilityLabel="Map of nearby Epic Cure stores"
+          >
+            {(stores ?? []).map((s) => (
+              <Marker
+                key={s.id}
+                coordinate={{ latitude: s.lat, longitude: s.lng }}
+                title={s.name}
+                description={s.is_open ? `Open · ${s.on_floor}/${s.max_capacity} shopping` : 'Closed'}
+                pinColor={s.is_open ? theme.green : theme.muted}
+                onCalloutPress={() => router.navigate({ pathname: '/(tabs)/stores', params: { id: s.id } })}
+              />
+            ))}
+          </MapView>
+        </View>
+        {stores === null ? <Loading label="Finding stores…" /> : null}
+        <Card style={styles.listCard}>
+          {(stores ?? []).map((s, i) => (
+            <View key={s.id}>
+              {i > 0 ? <View style={styles.divider} /> : null}
+              <ListRow
+                icon="storefront-outline"
+                title={s.name}
+                subtitle={[distanceText(s.distance_m), s.is_open ? `Open · ${s.on_floor}/${s.max_capacity} shopping` : 'Closed'].filter(Boolean).join(' · ')}
+                onPress={() => router.navigate({ pathname: '/(tabs)/stores', params: { id: s.id } })}
+              />
+            </View>
+          ))}
+          {stores && stores.length === 0 ? <Text style={ui.rowSub}>No stores found nearby.</Text> : null}
+        </Card>
+      </Section>
+
+      {/* Visit history — which store, when */}
+      <Section title="Your recent visits">
+        {history.length === 0 ? (
+          <Text style={ui.rowSub}>Your store visits will show up here.</Text>
+        ) : (
+          <Card style={styles.listCard}>
+            {history.slice(0, 4).map((v, i) => (
+              <View key={v.id}>
+                {i > 0 ? <View style={styles.divider} /> : null}
+                <ListRow
+                  icon={v.method === 'geofence' ? 'navigate-outline' : v.method === 'kiosk' ? 'qr-code-outline' : 'person-outline'}
+                  title={v.storeName}
+                  subtitle={`${visitDate(v.startedAt)} · ${['active', 'queue_waiting', 'checking_out'].includes(v.status) ? 'Now' : 'Visited'}`}
+                />
+              </View>
+            ))}
+          </Card>
+        )}
+      </Section>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: theme.bg },
-  content: { padding: 20, paddingBottom: 32 },
-  note: { backgroundColor: theme.greenSoft, borderRadius: 12, padding: 12, marginBottom: 16 },
-  noteText: { fontSize: theme.body, color: theme.ink, fontWeight: '600' },
-  group: { fontSize: 22, fontWeight: '700', color: theme.ink, marginBottom: 8, marginTop: 8 },
-  hello: { fontSize: 32, fontWeight: '700', color: theme.ink },
-  plan: {
-    alignSelf: 'flex-start',
-    backgroundColor: theme.greenSoft,
-    borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    marginVertical: 10,
-  },
-  planText: { fontSize: theme.body, fontWeight: '700', color: theme.green },
-  body: { fontSize: theme.body, color: theme.ink, marginBottom: 4 },
-  pill: {
-    alignSelf: 'flex-start',
-    backgroundColor: theme.green,
-    borderRadius: 999,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    marginVertical: 8,
-  },
-  pillText: { color: '#fff', fontWeight: '700', fontSize: theme.body },
+  hero: { flexDirection: 'row', alignItems: 'center', gap: theme.space.md, marginTop: theme.space.sm },
+  greet: { fontSize: theme.type.body, color: theme.muted, fontWeight: '600' },
+  avatar: { width: 52, height: 52, borderRadius: 26, backgroundColor: theme.green, alignItems: 'center', justifyContent: 'center' },
+  avatarText: { color: theme.white, fontSize: 22, fontWeight: '800' },
+  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: theme.space.sm },
+  visitHead: { flexDirection: 'row', alignItems: 'center', gap: theme.space.md },
+  visitIcon: { width: 48, height: 48, borderRadius: 14, backgroundColor: theme.greenSoft, alignItems: 'center', justifyContent: 'center' },
+  visitKicker: { color: theme.white, opacity: 0.85, fontSize: theme.type.label, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6 },
+  visitStore: { color: theme.white, fontSize: theme.type.h2, fontWeight: '800' },
+  leave: { alignSelf: 'center', minHeight: 44, justifyContent: 'center', paddingHorizontal: theme.space.lg },
+  leaveText: { color: theme.white, fontSize: theme.type.body, fontWeight: '700', textDecorationLine: 'underline' },
+  mapWrap: { borderRadius: theme.radius, overflow: 'hidden', ...theme.shadow },
+  map: { height: 220, width: '100%' },
+  listCard: { paddingVertical: theme.space.xs, gap: 0 },
+  divider: { height: 1, backgroundColor: theme.line, marginLeft: 52 },
 });

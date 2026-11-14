@@ -10,7 +10,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open [http://localhost:5173](http://localhost:5173).
 
 ## Demo logins
 
@@ -23,7 +23,7 @@ Password for all: `nest-local-demo`
 | `admin@demo.local` | Admin overview |
 | `partner@demo.local` | Analytics |
 
-Public kiosk: [/kiosk](http://localhost:3000/kiosk) — try card tokens `1001` (success), `1005` (enrollment expired), `9999` (queue).
+Public kiosk: [/kiosk](http://localhost:5173/kiosk) — try card tokens `1001` (success), `1005` (enrollment expired), `9999` (queue).
 
 ## Screens
 

@@ -18,6 +18,10 @@ export type Product = {
   group: Group;
   verdict: Verdict;
   reason: string;
+  /** Plain-language reason for the color, e.g. "High sodium". */
+  reasonText: string;
+  /** The rule's own explanation and source, shown under "Why?". */
+  reasonDetail: string;
   sodiumMg: number;
   sugarG: number;
   potassiumMg: number;
@@ -69,7 +73,6 @@ export type CartSnapshot = {
   listComplete: boolean;
   nutrient_totals?: Record<string, number>;
 };
-export type RecipeCard = Recipe & { usesFromCart: number; missing: Product | null; saved: boolean; source?: string };
 export type SafetyNote = { tone: 'green' | 'yellow' | 'red' | 'plain'; title: string; body: string };
 
 export type StoreRow = {
@@ -87,7 +90,9 @@ export type StoreRow = {
   geofence_radius_m?: number;
 };
 
-const GUIDES = { sodiumMg: 460, addedSugarG: 0.5, potassiumMg: 1000, carbsG: 30 };
+// FDA Daily Values (21 CFR 101.9). Bars show % Daily Value per serving, like a nutrition label.
+export const DAILY_VALUES = { sodiumMg: 2300, addedSugarG: 50, potassiumMg: 4700, carbsG: 275 };
+const GUIDES = DAILY_VALUES;
 const ALLERGEN_LABEL: Record<string, string> = {
   peanuts: 'Nuts',
   tree_nuts: 'Nuts',
@@ -159,6 +164,8 @@ type Floor = {
   conditions: string[];
   clientCode: string;
   email: string;
+  storeId?: string;
+  storeName?: string;
 };
 
 let floor: Floor | null = null;
@@ -339,6 +346,36 @@ function mapStore(raw: Record<string, unknown>): StoreRow {
   };
 }
 
+const NUTRIENT_WORD: Record<string, string> = {
+  NA: 'sodium',
+  SUG: 'sugar',
+  K: 'potassium',
+  P: 'phosphorus',
+  CARB: 'carbs',
+  GI: 'blood-sugar impact',
+};
+
+/** Rule codes look like NA_R / SUG_Y / P_MISS / SUG_DRINK / ALG_*. Pick the one that set the color. */
+function explainStatus(status: Record<string, unknown> | null, verdict: Verdict) {
+  const triggers = Array.isArray(status?.triggers) ? status!.triggers.filter(record) : [];
+  const suffix = verdict === 'red' ? '_R' : verdict === 'yellow' ? '_Y' : '_G';
+  const rank = (code: string) =>
+    code.endsWith(suffix) ? 0 : code.startsWith('ALG') ? 1 : code.endsWith('_MISS') ? 2 : code.endsWith('_G') ? 9 : 3;
+  const best = [...triggers].sort((a, b) => rank(String(a.nutrient ?? '')) - rank(String(b.nutrient ?? '')))[0];
+  const code = String(best?.nutrient ?? status?.reason ?? '');
+  const detail = typeof best?.condition === 'string' ? best.condition : '';
+  if (verdict === 'green') return { text: 'Fits your health plan', detail };
+  const [prefix] = code.split('_');
+  const word = NUTRIENT_WORD[prefix] ?? '';
+  let text: string;
+  if (code.startsWith('ALG')) text = 'Contains one of your allergens';
+  else if (code.endsWith('_MISS')) text = word ? `Missing ${word} information — ask a volunteer` : 'Missing label information — ask a volunteer';
+  else if (code === 'SUG_DRINK') text = 'Sweet drinks are not on your plan';
+  else if (word) text = verdict === 'red' ? `High ${word}` : `Moderate ${word}`;
+  else text = typeof status?.label === 'string' ? status.label : 'Check with a volunteer';
+  return { text, detail };
+}
+
 function toProduct(raw: Record<string, unknown>, household: number): Product | null {
   const product = record(raw.product) ? raw.product : raw;
   const status = record(raw.status) ? raw.status : null;
@@ -361,6 +398,7 @@ function toProduct(raw: Record<string, unknown>, household: number): Product | n
     (typeof status?.reason === 'string' && status.reason) ||
     (typeof status?.label === 'string' && status.label) ||
     (typeof raw.reason === 'string' ? raw.reason : '');
+  const explained = explainStatus(status, verdict);
   return {
     sku,
     productId: id || undefined,
@@ -368,6 +406,8 @@ function toProduct(raw: Record<string, unknown>, household: number): Product | n
     group,
     verdict,
     reason,
+    reasonText: explained.text,
+    reasonDetail: explained.detail,
     sodiumMg: num(nutrients.sodium_mg ?? nutrients.sodiumMg),
     sugarG: num(nutrients.sugar_g ?? nutrients.added_sugar_g ?? nutrients.sugarG),
     potassiumMg: num(nutrients.potassium_mg ?? nutrients.potassiumMg),
@@ -626,14 +666,72 @@ export async function geofenceCheckIn(storeId: string, lat: number, lng: number,
   if (visit && floor) {
     floor.visitToken = visit;
     floor.sessionId = visit;
+    const store = record(row.store) ? row.store : {};
+    floor.storeId = String(store.id ?? storeId);
+    floor.storeName = String(store.name ?? '');
     await storeSet(VISIT_KEY, visit);
   }
   return row;
 }
 
+/** Which store the signed-in client is checked in at, from the server. */
+export async function refreshCurrentVisit(): Promise<{ storeId: string; storeName: string; status: string } | null> {
+  try {
+    const row = await call<Record<string, unknown> | null>('/visits/current', { visit: false });
+    if (!record(row)) {
+      if (floor) {
+        floor.visitToken = null;
+        floor.storeId = undefined;
+        floor.storeName = undefined;
+      }
+      await storeSet(VISIT_KEY, null);
+      return null;
+    }
+    const store = record(row.store) ? row.store : {};
+    if (floor) {
+      floor.storeId = String(store.id ?? '');
+      floor.storeName = String(store.name ?? '');
+    }
+    return { storeId: String(store.id ?? ''), storeName: String(store.name ?? ''), status: String(row.status ?? '') };
+  } catch {
+    return floor?.visitToken ? { storeId: floor.storeId ?? '', storeName: floor.storeName ?? '', status: 'active' } : null;
+  }
+}
+
+export function currentStoreName() {
+  return floor?.visitToken ? floor.storeName || 'the store' : null;
+}
+
+export type VisitRow = {
+  id: string;
+  storeName: string;
+  storeCity: string;
+  status: string;
+  method: string;
+  startedAt: string;
+  endedAt: string | null;
+};
+
+export async function getVisitHistory(): Promise<VisitRow[]> {
+  const rows = await call<unknown>('/visits/history', { visit: false });
+  return (Array.isArray(rows) ? rows : []).filter(record).map((row) => ({
+    id: String(row.id),
+    storeName: String(row.store_name ?? 'Store'),
+    storeCity: String(row.store_city ?? ''),
+    status: String(row.status ?? ''),
+    method: String(row.check_in_method ?? ''),
+    startedAt: String(row.started_at ?? ''),
+    endedAt: row.ended_at ? String(row.ended_at) : null,
+  }));
+}
+
 export async function leaveStore() {
   await call('/visits/current/leave', { method: 'POST' });
-  if (floor) floor.visitToken = null;
+  if (floor) {
+    floor.visitToken = null;
+    floor.storeId = undefined;
+    floor.storeName = undefined;
+  }
   await storeSet(VISIT_KEY, null);
 }
 
@@ -799,71 +897,136 @@ export async function addToCart(sku: string): Promise<{ added: boolean; product:
   }
 }
 
+export async function removeFromCart(productId: string) {
+  await call(`/cart/items/${productId}`, { method: 'DELETE' });
+}
+
 export function locationLabel(product: Pick<Product, 'aisle' | 'shelf' | 'bin'>) {
   return `Aisle ${product.aisle} · Shelf ${product.shelf} · Bin ${product.bin}`;
 }
 
-export async function getRecipes(): Promise<RecipeCard[]> {
-  try {
-    const data = await call<Record<string, unknown>>('/recipes/for-me', { visit: false });
-    const list = Array.isArray(data.recipes) ? data.recipes.filter(record) : [];
-    if (list.length) {
-      return list.map((recipe, index) => {
-        const nutrition = record(recipe.nutrition_per_serving) ? recipe.nutrition_per_serving : {};
-        return {
-          id: String(recipe.id ?? index),
-          title: String(recipe.title ?? 'Recipe'),
-          minutes: num(recipe.time_min ?? recipe.minutes) || 20,
-          icon: 'nutrition' as const,
-          ingredientSkus: [],
-          missingSku: '',
-          usesFromCart: Array.isArray(recipe.uses_from_cart) ? recipe.uses_from_cart.length : 0,
-          missing: null,
-          saved: savedIds.includes(String(recipe.id ?? index)),
-          source: String(recipe.source ?? data.source ?? ''),
-          why: String(recipe.why_good_for_you ?? ''),
-          steps: Array.isArray(recipe.steps) ? recipe.steps.map(String) : [],
-          sodiumMg: num(nutrition.sodium_mg),
-          sugarG: num(nutrition.sugar_g),
-          potassiumMg: num(nutrition.potassium_mg),
-          carbsG: num(nutrition.carbs_g),
-        };
-      }) as RecipeCard[];
-    }
-  } catch {
-    /* offline demo cards */
-  }
-  const inCart = new Set((await cartLines()).map((line) => line.product.sku));
-  return recipes.map((recipe) => ({
-    ...recipe,
-    usesFromCart: recipe.ingredientSkus.filter((sku) => inCart.has(sku)).length,
-    missing: catalog.find((item) => item.sku === recipe.missingSku) ?? null,
-    saved: savedIds.includes(recipe.id),
-  }));
+export type RecipeIngredient = {
+  name: string;
+  amount: string;
+  inCart: boolean;
+  verdict: Verdict | null;
+  location: string;
+};
+
+export type RecipeCard = {
+  id: string;
+  title: string;
+  description: string;
+  minutes: number;
+  servings: number;
+  why: string;
+  tags: string[];
+  steps: string[];
+  ingredients: RecipeIngredient[];
+  usesFromCart: number;
+  missing: { name: string; location: string; verdict: Verdict | null }[];
+  source: string;
+  saved: boolean;
+  sodiumMg: number;
+  sugarG: number;
+  potassiumMg: number;
+  carbsG: number;
+};
+
+function locationText(value: unknown) {
+  if (!record(value)) return '';
+  if (typeof value.label === 'string' && value.label) return value.label;
+  const parts = [value.aisle && `Aisle ${value.aisle}`, value.shelf && `Shelf ${value.shelf}`, value.bin && `Bin ${value.bin}`];
+  return parts.filter(Boolean).join(' · ');
+}
+
+function statusLevel(value: unknown): Verdict | null {
+  if (typeof value === 'string') return verdictOf(value);
+  return record(value) ? verdictOf(value.level) : null;
+}
+
+function mapRecipe(recipe: Record<string, unknown>, fallbackSource: string): RecipeCard {
+  const nutrition = record(recipe.nutrition_per_serving) ? recipe.nutrition_per_serving : {};
+  const id = String(recipe.id ?? '');
+  const ingredients = (Array.isArray(recipe.ingredients) ? recipe.ingredients : []).filter(record).map((item) => {
+    const product = record(item.product) ? item.product : {};
+    return {
+      name: String(item.name ?? product.name ?? 'Ingredient'),
+      amount: String(item.amount ?? ''),
+      inCart: Boolean(item.in_cart),
+      verdict: statusLevel(item.status),
+      location: locationText(item.location ?? product.location),
+    };
+  });
+  const missing = (Array.isArray(recipe.missing_ingredients) ? recipe.missing_ingredients : []).filter(record).map((item) => {
+    const product = record(item.product) ? item.product : {};
+    return { name: String(product.name ?? 'Item'), location: locationText(product.location), verdict: statusLevel(item.status) };
+  });
+  return {
+    id,
+    title: String(recipe.title ?? 'Recipe'),
+    description: String(recipe.description ?? ''),
+    minutes: num(recipe.time_min) || 20,
+    servings: num(recipe.servings) || 1,
+    why: String(recipe.why_good_for_you ?? ''),
+    tags: Array.isArray(recipe.tags) ? recipe.tags.map(String) : [],
+    steps: Array.isArray(recipe.steps) ? recipe.steps.map(String) : [],
+    ingredients,
+    usesFromCart: Array.isArray(recipe.uses_from_cart) ? recipe.uses_from_cart.length : 0,
+    missing,
+    source: String(recipe.source ?? fallbackSource),
+    saved: savedIds.includes(id),
+    sodiumMg: num(nutrition.sodium_mg),
+    sugarG: num(nutrition.sugar_g),
+    potassiumMg: num(nutrition.potassium_mg),
+    carbsG: num(nutrition.carbs_g),
+  };
+}
+
+const recipeCache = new Map<string, RecipeCard>();
+
+/**
+ * "plan" = recipes for the client's health plan; "cart" = recipes built from what is in the cart.
+ * Both need an active store visit (the server reads stock for that store). No offline fake recipes:
+ * a failure is thrown so the screen can say so honestly.
+ */
+export async function getRecipes(mode: 'plan' | 'cart'): Promise<{ source: string; recipes: RecipeCard[] }> {
+  if (!floor?.visitToken) throw new ApiError(409, 'no_visit', 'Check in at a store to see recipes from today\'s stock.');
+  const data =
+    mode === 'cart'
+      ? await call<Record<string, unknown>>('/recipes/from-cart', { method: 'POST', body: JSON.stringify({}) })
+      : await call<Record<string, unknown>>('/recipes/for-me');
+  const source = String(data.source ?? '');
+  const recipes = (Array.isArray(data.recipes) ? data.recipes : []).filter(record).map((r) => mapRecipe(r, source));
+  recipes.forEach((recipe) => recipeCache.set(recipe.id, recipe));
+  return { source, recipes };
+}
+
+export function getCachedRecipe(id: string) {
+  return recipeCache.get(id) ?? null;
 }
 
 export async function saveRecipe(id: string): Promise<{ saved: boolean; firstSave: boolean }> {
   if (savedIds.includes(id)) return { saved: true, firstSave: false };
-  try {
-    await call('/recipes/saved', {
-      method: 'POST',
-      visit: false,
-      body: JSON.stringify({ recipe_id: id }),
-    });
-  } catch {
-    /* local save still ok for UX */
-  }
+  await call('/recipes/saved', { method: 'POST', body: JSON.stringify({ recipe_id: id }) });
   savedIds = [...savedIds, id];
   const firstSave = !recipePointGiven;
   if (firstSave) {
     recipePointGiven = true;
     points += 1;
   }
+  const cached = recipeCache.get(id);
+  if (cached) recipeCache.set(id, { ...cached, saved: true });
   return { saved: true, firstSave };
 }
 
-export async function getSavedRecipes(): Promise<Recipe[]> {
-  return recipes.filter((recipe) => savedIds.includes(recipe.id));
+export async function getSavedRecipes(): Promise<RecipeCard[]> {
+  if (!floor?.visitToken) return [];
+  const rows = await call<unknown>('/recipes/saved');
+  const list = (Array.isArray(rows) ? rows : []).filter(record).map((r) => mapRecipe(r, 'saved'));
+  savedIds = Array.from(new Set([...savedIds, ...list.map((r) => r.id)]));
+  list.forEach((recipe) => recipeCache.set(recipe.id, { ...recipe, saved: true }));
+  return list.map((r) => ({ ...r, saved: true }));
 }
 
 export { API_URL };

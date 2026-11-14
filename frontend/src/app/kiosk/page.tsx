@@ -17,8 +17,9 @@ import {
   setKioskCode,
   type KioskCheckInResult,
 } from "@/lib/api";
+import { AlertCircle, CheckCircle2, Clock3, KeyRound, QrCode } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, FormEvent } from "react";
 
 type Screen =
   | { kind: "setup" }
@@ -39,6 +40,18 @@ export default function KioskPage() {
     getKioskCode() ? { kind: "form" } : { kind: "setup" },
   );
   const lastScan = useRef("");
+
+  // After a successful check-in, return to the welcome screen for the next shopper.
+  useEffect(() => {
+    if (screen.kind !== "in") return;
+    const t = window.setTimeout(() => {
+      setCode("");
+      lastScan.current = "";
+      setScreen({ kind: "form" });
+      setMode("scan");
+    }, 12_000);
+    return () => window.clearTimeout(t);
+  }, [screen.kind]);
 
   function reset() {
     setCode("");
@@ -121,7 +134,9 @@ export default function KioskPage() {
       <KioskShell>
         <Card className="mx-auto w-full max-w-2xl rounded-3xl border-primary/20 shadow-sm">
           <CardHeader className="space-y-3 text-center">
-            <p className="text-sm font-medium tracking-wide text-primary uppercase">Epic Cure</p>
+            <div className={`mx-auto flex size-20 items-center justify-center rounded-full ${queued ? "bg-amber-100 text-amber-800" : "bg-primary/10 text-primary"}`} aria-hidden>
+              {queued ? <Clock3 className="size-10" /> : <CheckCircle2 className="size-10" />}
+            </div>
             <CardTitle className="text-4xl font-semibold tracking-tight">
               {queued ? "You are in the queue" : "Checked in"}
             </CardTitle>
@@ -132,11 +147,11 @@ export default function KioskPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col items-center gap-5 text-lg">
-            {result.store?.name ? <p>{result.store.name}</p> : null}
-            <p className="text-center font-mono text-sm break-all">{result.visit_token}</p>
+            {result.store?.name ? <p className="text-muted-foreground">{result.store.name}</p> : null}
             <Button size="lg" className="h-16 min-w-48 rounded-2xl text-lg" onClick={reset}>
               Next shopper
             </Button>
+            <p className="text-sm text-muted-foreground">This screen resets on its own in a few seconds.</p>
           </CardContent>
         </Card>
       </KioskShell>
@@ -147,7 +162,10 @@ export default function KioskPage() {
     return (
       <KioskShell>
         <Card className="mx-auto w-full max-w-xl rounded-3xl shadow-sm">
-          <CardHeader className="text-center">
+          <CardHeader className="space-y-3 text-center">
+            <div className="mx-auto flex size-20 items-center justify-center rounded-full bg-destructive/10 text-destructive" aria-hidden>
+              <AlertCircle className="size-10" />
+            </div>
             <CardTitle className="text-3xl">Please see a volunteer</CardTitle>
             <CardDescription className="text-lg">{screen.message}</CardDescription>
           </CardHeader>
@@ -170,26 +188,28 @@ export default function KioskPage() {
           <p className="text-lg text-muted-foreground">
             Scan the QR on the shopper&apos;s phone, or enter their client code.
           </p>
-          <p className="text-xs text-muted-foreground">Bound kiosk: {getKioskCode() || "none"}</p>
+
         </div>
 
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            variant={mode === "scan" ? "default" : "outline"}
-            className="rounded-full"
-            onClick={() => setMode("scan")}
-          >
-            Scan QR
-          </Button>
-          <Button
-            type="button"
-            variant={mode === "keypad" ? "default" : "outline"}
-            className="rounded-full"
-            onClick={() => setMode("keypad")}
-          >
-            Keypad
-          </Button>
+        <div className="grid w-full grid-cols-2 gap-1 rounded-2xl bg-muted p-1" role="tablist" aria-label="Check-in method">
+          {(
+            [
+              ["scan", "Scan phone QR", QrCode],
+              ["keypad", "Type client code", KeyRound],
+            ] as const
+          ).map(([key, label, Icon]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={mode === key}
+              onClick={() => setMode(key)}
+              className={`flex min-h-12 items-center justify-center gap-2 rounded-xl text-base font-medium transition-colors ${mode === key ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <Icon className="size-5" aria-hidden />
+              {label}
+            </button>
+          ))}
         </div>
 
         {mode === "scan" ? (
@@ -220,8 +240,8 @@ export default function KioskPage() {
           </form>
         )}
 
-        <Button type="button" variant="ghost" onClick={() => setScreen({ kind: "setup" })}>
-          Rebind kiosk code
+        <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setScreen({ kind: "setup" })}>
+          Kiosk settings ({getKioskCode() || "not set"})
         </Button>
       </div>
     </KioskShell>
@@ -232,10 +252,10 @@ function KioskShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col bg-background px-6 py-8">
       <div className="flex flex-1 items-center justify-center">{children}</div>
-      <p className="pt-6 text-center text-xs text-muted-foreground">
+      <p className="pt-6 text-center text-sm text-muted-foreground">
         Staff?{" "}
-        <Link href="/login" className="underline underline-offset-2">
-          Sign in
+        <Link href="/checkout" className="font-medium underline underline-offset-2">
+          Back to the dashboard
         </Link>
       </p>
     </div>

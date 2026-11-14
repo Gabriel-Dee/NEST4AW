@@ -1,7 +1,7 @@
 "use client";
 
+import { roleHome } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { mockApi } from "@/lib/mock/api";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
@@ -15,7 +15,7 @@ export default function HomePage() {
       router.replace("/login");
       return;
     }
-    router.replace(mockApi.roleHome(user.role));
+    router.replace(roleHome(user.role));
   }, [ready, user, router]);
 
   return (

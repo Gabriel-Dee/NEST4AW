@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,7 +9,6 @@ import { theme } from '../theme';
 
 /** Welcome — login or register. Not the old name/code check-in. */
 export default function WelcomeScreen() {
-  const router = useRouter();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -26,7 +25,9 @@ export default function WelcomeScreen() {
     return () => {
       alive = false;
     };
-  }, [router]);
+    // Run once at app start. Depending on the router object re-ran this on every navigation
+    // and kept sending the user back to Home.
+  }, []);
 
   if (!ready) {
     return (

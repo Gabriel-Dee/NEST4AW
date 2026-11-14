@@ -1,25 +1,42 @@
+// Same light theme as frontend/src/app/globals.css (:root).
+// Hex values are those OKLCH tokens. React Native does not paint oklch.
+// Style: "Accessible & Ethical" — high contrast, 17pt body, 48pt touch targets, calm motion.
 export const theme = {
-  bg: '#F7F3EB',
-  card: '#FFFCF7',
-  ink: '#1C1917',
-  muted: '#57534E',
-  line: '#E7E0D6',
-  green: '#1F7A4D',
-  greenSoft: '#E5F4EC',
-  yellow: '#8A5A00',
-  yellowSoft: '#FFF4D6',
-  red: '#9B2C2C',
-  redSoft: '#FDECEC',
-  white: '#FFFFFF',
-  radius: 16,
+  bg: '#f8f7f1',
+  card: '#ffffff',
+  ink: '#131d17',
+  muted: '#556159',
+  line: '#e0ded7',
+  green: '#156f41',
+  greenDark: '#0f5532',
+  greenSoft: '#e1efe5',
+  verdictGreen: '#d2f6dd',
+  verdictGreenFg: '#004922',
+  yellow: '#6c4300',
+  yellowSoft: '#fbefc2',
+  red: '#9b1e22',
+  redSoft: '#ffdfda',
+  white: '#f9fdfa',
+  radius: 20,
+  radiusSm: 14,
   body: 17,
-  title: 32,
+  title: 30,
   tap: 48,
+  // 4/8 spacing rhythm
+  space: { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 },
+  // Type scale
+  type: { caption: 14, body: 17, label: 15, h3: 19, h2: 22, h1: 30 },
   shadow: {
-    shadowColor: '#1C1917',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
+    shadowColor: '#131d17',
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
+} as const;
+
+export const verdictPalette = {
+  green: { bg: theme.verdictGreen, fg: theme.verdictGreenFg, icon: 'checkmark-circle' },
+  yellow: { bg: theme.yellowSoft, fg: theme.yellow, icon: 'alert-circle' },
+  red: { bg: theme.redSoft, fg: theme.red, icon: 'close-circle' },
 } as const;

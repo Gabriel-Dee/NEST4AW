@@ -1,24 +1,21 @@
 "use client";
 
-import { mockApi } from "@/lib/mock/api";
-import type { AuthUser, Role } from "@/lib/types";
 import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
-
-const STORAGE_KEY = "epic-cure-auth";
+  getAccessToken,
+  login as apiLogin,
+  logout as apiLogout,
+  me,
+  setAccessToken,
+  type AuthUser,
+} from "@/lib/api";
+import type { Role } from "@/lib/types";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 type AuthContextValue = {
   user: AuthUser | null;
   ready: boolean;
   login: (email: string, password: string) => Promise<AuthUser>;
   logout: () => void;
-  switchRole: (role: Role) => void;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -28,44 +25,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem(STORAGE_KEY);
-      if (raw) setUser(JSON.parse(raw) as AuthUser);
-    } catch {
-      /* ignore */
+    let cancel = false;
+    const done = (next: AuthUser | null) => {
+      if (cancel) return;
+      setUser(next);
+      setReady(true);
+    };
+    if (!getAccessToken()) {
+      queueMicrotask(() => done(null));
+      return () => {
+        cancel = true;
+      };
     }
-    setReady(true);
+    me()
+      .then(done)
+      .catch(() => {
+        setAccessToken(null);
+        done(null);
+      });
+    return () => {
+      cancel = true;
+    };
   }, []);
 
-  const persist = useCallback((next: AuthUser | null) => {
+  const login = useCallback(async (email: string, password: string) => {
+    const next = await apiLogin(email, password);
     setUser(next);
-    if (next) sessionStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    else sessionStorage.removeItem(STORAGE_KEY);
+    return next;
   }, []);
 
-  const login = useCallback(
-    async (email: string, password: string) => {
-      const next = await mockApi.login(email, password);
-      persist(next);
-      return next;
-    },
-    [persist],
-  );
+  const logout = useCallback(() => {
+    apiLogout();
+    setUser(null);
+  }, []);
 
-  const logout = useCallback(() => persist(null), [persist]);
-
-  const switchRole = useCallback(
-    (role: Role) => {
-      if (!user) return;
-      persist({ ...user, role });
-    },
-    [persist, user],
-  );
-
-  const value = useMemo(
-    () => ({ user, ready, login, logout, switchRole }),
-    [user, ready, login, logout, switchRole],
-  );
+  const value = useMemo(() => ({ user, ready, login, logout }), [user, ready, login, logout]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
