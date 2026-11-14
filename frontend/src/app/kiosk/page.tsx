@@ -1,5 +1,6 @@
 "use client";
 
+import { KioskQrScanner } from "@/components/kiosk-qr-scanner";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -17,7 +18,7 @@ import {
   type KioskCheckInResult,
 } from "@/lib/api";
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useCallback, useRef, useState } from "react";
 
 type Screen =
   | { kind: "setup" }
@@ -25,34 +26,42 @@ type Screen =
   | { kind: "in"; result: KioskCheckInResult }
   | { kind: "error"; message: string };
 
+/**
+ * Kiosk check-in = camera scan of phone QR (qr_token) or keypad client_code.
+ * Not the legacy /floor/arrive card-token flow.
+ */
 export default function KioskPage() {
-  const [token, setToken] = useState("");
+  const [code, setCode] = useState("");
   const [kioskCode, setKioskCodeInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<"scan" | "keypad">("scan");
   const [screen, setScreen] = useState<Screen>(() =>
     getKioskCode() ? { kind: "form" } : { kind: "setup" },
   );
+  const lastScan = useRef("");
 
   function reset() {
-    setToken("");
+    setCode("");
+    lastScan.current = "";
     setScreen({ kind: "form" });
+    setMode("scan");
   }
 
   function saveSetup(e?: FormEvent) {
     e?.preventDefault();
-    const code = kioskCode.trim();
-    if (!code) return;
-    setKioskCode(code);
+    const next = kioskCode.trim();
+    if (!next) return;
+    setKioskCode(next);
     setScreen({ kind: "form" });
   }
 
-  async function submit(e?: FormEvent) {
-    e?.preventDefault();
-    const trimmed = token.trim();
+  const checkIn = useCallback(async (raw: string) => {
+    const trimmed = raw.trim();
     if (!trimmed || busy) return;
     setBusy(true);
     try {
-      const looksQr = trimmed.length > 40;
+      // JWT-shaped / long strings = phone QR; short numeric = client_code keypad
+      const looksQr = trimmed.length > 40 || trimmed.includes(".");
       const result = await kioskCheckIn(
         looksQr ? { qr_token: trimmed } : { client_code: trimmed },
       );
@@ -65,6 +74,21 @@ export default function KioskPage() {
     } finally {
       setBusy(false);
     }
+  }, [busy]);
+
+  const onQrScanned = useCallback(
+    (value: string) => {
+      if (busy || screen.kind !== "form") return;
+      if (value === lastScan.current) return;
+      lastScan.current = value;
+      void checkIn(value);
+    },
+    [busy, checkIn, screen.kind],
+  );
+
+  function submitKeypad(e?: FormEvent) {
+    e?.preventDefault();
+    void checkIn(code);
   }
 
   if (screen.kind === "setup") {
@@ -73,7 +97,8 @@ export default function KioskPage() {
         <form className="mx-auto flex w-full max-w-xl flex-col gap-4" onSubmit={saveSetup}>
           <h1 className="text-center text-3xl font-semibold">Kiosk setup</h1>
           <p className="text-center text-muted-foreground">
-            Paste the store kiosk code once. It is stored on this tablet only.
+            Paste the store <span className="font-medium">X-Kiosk-Code</span> once. This tablet keeps it
+            locally — no email login on this screen.
           </p>
           <Input
             value={kioskCode}
@@ -110,7 +135,7 @@ export default function KioskPage() {
             {result.store?.name ? <p>{result.store.name}</p> : null}
             <p className="text-center font-mono text-sm break-all">{result.visit_token}</p>
             <Button size="lg" className="h-16 min-w-48 rounded-2xl text-lg" onClick={reset}>
-              Done
+              Next shopper
             </Button>
           </CardContent>
         </Card>
@@ -138,34 +163,67 @@ export default function KioskPage() {
 
   return (
     <KioskShell>
-      <form className="mx-auto flex w-full max-w-xl flex-col items-center gap-6" onSubmit={submit}>
+      <div className="mx-auto flex w-full max-w-xl flex-col items-center gap-6">
         <div className="space-y-3 text-center">
           <p className="text-sm font-medium tracking-wide text-primary uppercase">Check-in</p>
           <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">Welcome to Epic Cure</h1>
           <p className="text-lg text-muted-foreground">
-            Enter client code or scan the phone QR. Bound kiosk: {getKioskCode() || "none"}
+            Scan the QR on the shopper&apos;s phone, or enter their client code.
           </p>
+          <p className="text-xs text-muted-foreground">Bound kiosk: {getKioskCode() || "none"}</p>
         </div>
-        <Input
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          autoComplete="off"
-          aria-label="Client code or QR"
-          className="h-20 rounded-2xl text-center text-2xl"
-          maxLength={4000}
-        />
-        <Button
-          type="submit"
-          size="lg"
-          className="h-16 w-full rounded-2xl text-xl"
-          disabled={!token.trim() || busy}
-        >
-          {busy ? "Checking in…" : "Check in"}
-        </Button>
+
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant={mode === "scan" ? "default" : "outline"}
+            className="rounded-full"
+            onClick={() => setMode("scan")}
+          >
+            Scan QR
+          </Button>
+          <Button
+            type="button"
+            variant={mode === "keypad" ? "default" : "outline"}
+            className="rounded-full"
+            onClick={() => setMode("keypad")}
+          >
+            Keypad
+          </Button>
+        </div>
+
+        {mode === "scan" ? (
+          <>
+            <KioskQrScanner active={!busy} onScan={onQrScanned} />
+            {busy ? <p className="text-lg">Checking in…</p> : null}
+          </>
+        ) : (
+          <form className="flex w-full flex-col items-center gap-4" onSubmit={submitKeypad}>
+            <Input
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              autoComplete="off"
+              inputMode="numeric"
+              aria-label="Client code"
+              placeholder="Client code"
+              className="h-20 rounded-2xl text-center text-2xl"
+              maxLength={32}
+            />
+            <Button
+              type="submit"
+              size="lg"
+              className="h-16 w-full rounded-2xl text-xl"
+              disabled={!code.trim() || busy}
+            >
+              {busy ? "Checking in…" : "Check in"}
+            </Button>
+          </form>
+        )}
+
         <Button type="button" variant="ghost" onClick={() => setScreen({ kind: "setup" })}>
           Rebind kiosk code
         </Button>
-      </form>
+      </div>
     </KioskShell>
   );
 }

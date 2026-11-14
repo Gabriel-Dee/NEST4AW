@@ -426,6 +426,7 @@ export function logout() {
   setAccessToken(null);
 }
 
+/** @deprecated Legacy card-token floor arrive. Prefer kioskCheckIn({ qr_token }) or geofence. */
 export function arrive(token: string) {
   return api<SessionView>("/floor/arrive", {
     method: "POST",
