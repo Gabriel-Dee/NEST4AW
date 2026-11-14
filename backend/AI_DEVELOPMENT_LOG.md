@@ -74,3 +74,13 @@ Explained 12 conflicts and incompatible response/clinical/seed behavior before c
 Preserved incoming UI files, adapted alternate backend modules to one implementation, retained
 both test suites, regenerated uv/requirements locks, and tested a clean Python 3.13 installation.
 See MERGE_NOTES.md for decisions, compatibility changes, and 127-test verification evidence.
+
+## 2026-11-14 — server account seed
+
+User requested runnable server test accounts at epic.com and supplied the deployed API URL.
+Added a separate, non-destructive `seed.accounts` command with a hidden password prompt,
+preflight role/profile conflict checks, transaction/advisory-lock protection, Argon2 hashing,
+full synthetic patient enrollment, and once-issued card output after commit. Existing passwords,
+roles, disabled status, sessions, and inventory remain unchanged on reruns. Verified only public
+health/OpenAPI remotely; account writes are left to the user-run server command. Added tests
+covering nine logins, separate profiles, floor cards, no password reset, and atomic conflict handling.
