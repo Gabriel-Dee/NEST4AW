@@ -10,6 +10,7 @@ from app.db import connection
 from app.errors import APIError
 from app.floor import active_session, advance, product, public_session
 from app.schemas import Arrival, CartAdd, LotCreate, Scan, SessionBody
+from app.visits import promote, store_of_session
 
 router = APIRouter()
 staff = require_role("warehouse_staff", "admin")
@@ -103,14 +104,19 @@ def board(conn=Depends(connection, scope="function")):
 @router.post("/scan")
 def scan(body: Scan, request: Request, conn=Depends(connection, scope="function")):
     person = active_session(conn, body.session_id)
-    food = product(conn, barcode=body.barcode, internal_code=body.internal_code)
+    food = product(
+        conn,
+        barcode=body.barcode,
+        internal_code=body.internal_code,
+        store_id=store_of_session(conn, body.session_id),
+    )
     return request.app.state.engine.evaluate(person, food)
 
 
 @router.post("/cart/lines")
 def add(body: CartAdd, request: Request, conn=Depends(connection, scope="function")):
     person = active_session(conn, body.session_id)
-    food = product(conn, pid=body.product_id)
+    food = product(conn, pid=body.product_id, store_id=store_of_session(conn, body.session_id))
     result = request.app.state.engine.evaluate(person, food)
     if result["verdict"] not in ("green", "yellow"):
         raise APIError(409, "not_eligible", "item requires clinical review")
@@ -182,12 +188,14 @@ def checkout(
         if result["verdict"] in ("red", "unknown"):
             raise APIError(409, "red_in_cart", "cart contains an item requiring review")
     ledger = []
+    store_id = store_of_session(conn, body.session_id)
     for line in lines:
         remaining = line["qty"]
         lots = conn.execute(
             """SELECT * FROM lots WHERE product_id=%s AND qty>0 AND expires_on>CURRENT_DATE
+            AND (%s::uuid IS NULL OR store_id=%s)
             ORDER BY arrived_on,expires_on,id FOR UPDATE""",
-            (line["product_id"],),
+            (line["product_id"], store_id, store_id),
         ).fetchall()
         for lot in lots:
             take = min(remaining, lot["qty"])
@@ -198,8 +206,9 @@ def checkout(
             )
             ledger.append(
                 conn.execute(
-                    """INSERT INTO checkout_ledger(session_id,lot_id,product_id,grant_id,tier_id,qty)
-                VALUES(%s,%s,%s,%s,%s,%s) RETURNING *""",
+                    """INSERT INTO checkout_ledger
+                    (session_id,lot_id,product_id,grant_id,tier_id,qty,store_id)
+                    VALUES(%s,%s,%s,%s,%s,%s,%s) RETURNING *""",
                     (
                         body.session_id,
                         lot["id"],
@@ -207,6 +216,7 @@ def checkout(
                         lot["grant_id"],
                         person["tier_id"],
                         take,
+                        store_id,
                     ),
                 ).fetchone()
             )
@@ -214,6 +224,13 @@ def checkout(
         if remaining:
             raise APIError(409, "out_of_stock", "not enough unexpired stock")
     conn.execute("UPDATE sessions SET status='closed' WHERE id=%s", (body.session_id,))
+    if store_id:
+        conn.execute(
+            """UPDATE visits SET status='completed', ended_at=now()
+            WHERE id=%s AND status IN ('active','checking_out')""",
+            (body.session_id,),
+        )
+        promote(conn, store_id)
     advance(conn)
     if response_format == "summary":
         for row in ledger:

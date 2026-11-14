@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -29,7 +30,9 @@ def issue(user):
         settings().jwt_secret,
         algorithm="HS256",
     )
-    return dict(access_token=token, token_type="bearer", role=user["role"], expires_in=28800)
+    issued = dict(access_token=token, token_type="bearer", role=user["role"], expires_in=28800)
+    issued["token"] = token
+    return issued
 
 
 def authenticated(
@@ -55,6 +58,11 @@ def authenticated(
             or user["role"] != claims["role"]
             or user["email"] != claims["email"]
         ):
+            raise ValueError()
+        digest = hashlib.sha256(credentials.credentials.encode()).digest()
+        if conn.execute(
+            "SELECT 1 FROM revoked_tokens WHERE token_hash=%s AND expires_at>now()", (digest,)
+        ).fetchone():
             raise ValueError()
         return user
     except (jwt.PyJWTError, ValueError, TypeError):

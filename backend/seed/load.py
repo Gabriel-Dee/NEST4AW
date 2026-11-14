@@ -13,6 +13,8 @@ from app.auth import password_hash
 from app.clients import enroll
 from app.config import settings
 from app.schemas import ClientCreate
+from seed.recipes import seed_library
+from seed.stores import seed_stores
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -30,6 +32,8 @@ def initialize(conn):
 
     for migration in sorted((ROOT / "backend/migrations").glob("*.sql")):
         conn.execute(migration.read_text())
+    seed_library(conn)
+    seed_stores(conn)
 
 
 def insert_product(conn, food):

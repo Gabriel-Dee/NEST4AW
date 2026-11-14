@@ -47,13 +47,18 @@ def active_session(conn, sid, active=True):
     return row
 
 
-def product(conn, pid=None, barcode=None, internal_code=None):
-    return conn.execute(
+def product(conn, pid=None, barcode=None, internal_code=None, store_id=None):
+    row = conn.execute(
         """SELECT p.*,b.aisle,b.shelf,b.bin_code,
         EXISTS(SELECT 1 FROM lots l WHERE l.product_id=p.id AND l.qty>0
-          AND l.expires_on>CURRENT_DATE AND l.expires_on<=CURRENT_DATE+7) AS soon_to_expire,
-        coalesce((SELECT sum(qty) FROM lots WHERE product_id=p.id AND expires_on>CURRENT_DATE),0) AS stock
+          AND l.expires_on>CURRENT_DATE AND l.expires_on<=CURRENT_DATE+7
+          AND (%s::uuid IS NULL OR l.store_id=%s)) AS soon_to_expire,
+        coalesce((SELECT sum(qty) FROM lots WHERE product_id=p.id AND expires_on>CURRENT_DATE
+          AND (%s::uuid IS NULL OR store_id=%s)),0) AS stock
         FROM products p LEFT JOIN LATERAL (SELECT aisle,shelf,bin_code FROM bins WHERE product_id=p.id ORDER BY bin_code LIMIT 1) b ON true
         WHERE p.id=%s OR p.barcode=%s OR p.internal_code=%s LIMIT 1""",
-        (pid, barcode, internal_code),
+        (store_id, store_id, store_id, store_id, pid, barcode, internal_code),
     ).fetchone()
+    if store_id and row and int(row["stock"]) <= 0:
+        return None
+    return row

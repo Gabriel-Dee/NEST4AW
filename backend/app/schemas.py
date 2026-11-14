@@ -23,8 +23,36 @@ class Strict(BaseModel):
 
 
 class Login(Strict):
-    email: str = Field(min_length=3, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+    email: str | None = Field(
+        default=None, min_length=3, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
+    )
+    username: str | None = Field(default=None, min_length=3, max_length=254)
     password: str = Field(min_length=1, max_length=1024)
+
+    @model_validator(mode="after")
+    def one_login(self):
+        if not self.email and not self.username:
+            raise ValueError("email or username is required")
+        return self
+
+
+class Register(Strict):
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    phone: str | None = Field(default=None, max_length=50)
+    email: str | None = Field(
+        default=None, min_length=3, max_length=254, pattern=r"^[^\s@]+@[^\s@]+\.[^\s@]+$"
+    )
+    password: str = Field(min_length=8, max_length=1024)
+    household_size: int = Field(ge=1, le=100, strict=True)
+    icd10_codes: list[str] = Field(max_length=50)
+    allergies: list[Allergen] = Field(default_factory=list, max_length=9)
+
+    @model_validator(mode="after")
+    def phone_or_email(self):
+        if not self.phone and not self.email:
+            raise ValueError("phone or email is required")
+        return self
 
 
 class UserCreate(Login):

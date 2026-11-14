@@ -12,8 +12,9 @@ from starlette.exceptions import HTTPException
 
 from app.config import settings
 from app.errors import APIError
-from app.routes import accounts, ai, clients, health, products, warehouse
+from app.routes import accounts, ai, clients, health, products, recipes, stores, warehouse
 from app.rules import RuleEngine
+from seed.load import initialize
 
 
 def create_app():
@@ -32,6 +33,7 @@ def create_app():
         pool.open(wait=True)
         try:
             with pool.connection() as conn:
+                initialize(conn)
                 app.state.engine = RuleEngine(conn.execute("SELECT * FROM rules").fetchall())
                 if not conn.execute("SELECT id FROM warehouse_limits WHERE id=1").fetchone():
                     raise RuntimeError("warehouse limits must be seeded")
@@ -48,15 +50,17 @@ def create_app():
         allow_headers=["Authorization", "Content-Type"],
     )
 
-    def error(status, code, message):
-        return JSONResponse(status_code=status, content={"error": code, "message": message})
+    def error(status, code, message, **extra):
+        return JSONResponse(
+            status_code=status, content={"error": code, "message": message, **extra}
+        )
 
     @app.exception_handler(APIError)
     async def domain_error(request, exc):
         code = exc.code
         if code == "session_inactive" and request.query_params.get("response_format") == "summary":
             code = "session_not_active"
-        return error(exc.status, code, exc.message)
+        return error(exc.status, code, exc.message, **exc.details)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
@@ -89,7 +93,7 @@ def create_app():
         response.headers["X-Content-Type-Options"] = "nosniff"
         return response
 
-    for module in (health, accounts, clients, warehouse, ai, products):
+    for module in (health, accounts, clients, warehouse, ai, products, recipes, stores):
         app.include_router(module.router)
     return app
 

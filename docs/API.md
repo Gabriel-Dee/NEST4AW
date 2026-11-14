@@ -244,6 +244,26 @@ records or carts. Staff must resolve identity/data before a product can be dispe
 Unavailable OCR is explicitly labeled; it is never represented as successful extraction.
 Invalid images return 422. No legal names, phones, or ICD codes enter OCR requests.
 
+### Stores and visits
+
+An account login and a store visit are different. `POST /auth/login` accepts `email` or `username` and returns `token` plus the existing `access_token`. `POST /auth/register` creates a client account. `POST /auth/logout` revokes the presented bearer token. `GET /auth/me/checkin-qr` returns a 60-second QR for a client.
+
+`GET /stores?lat=&lng=&radius_km=25` lists nearby stores sorted by distance. `GET /stores/nearest` returns the closest store and `within_geofence`. `POST /stores/{id}/check-in` with a client JWT and `{lat,lng,accuracy_m}` checks the server-side distance against that store's radius. The phone's own "I am here" flag is not accepted. Outside the fence is `403 NOT_AT_STORE` with `distance_m`. A second open visit is `409 ALREADY_CHECKED_IN`. A full floor returns `202` with `queue_waiting`. `POST /kiosk/check-in` requires header `X-Kiosk-Code`. `POST /visits/current/leave` ends the visit.
+
+Shopping stock for a visit uses that visit's store. Lots at another store are not offered.
+
+### Recipes
+
+Mobile session credential. Pass `session_id` on every call. No names, phones, or client codes are sent to the model. The rules engine drops any red ingredient before a recipe is returned. Nutrient totals are computed from labeled servings. If the model is down, returns invalid JSON twice, or the 8 second budget expires, the seeded library is returned with `source:"fallback"`. The client still gets a recipe list, which may be empty when nothing in stock is green or yellow.
+
+`GET /api/v1/recipes/for-me?session_id=` returns `{mode:"profile", source:"ai"|"fallback", recipes:[Recipe]}`.
+
+`POST /api/v1/recipes/from-cart` body `{session_id}` uses that session cart. An empty cart returns the profile result instead, with `mode:"profile"`.
+
+`POST /api/v1/recipes/saved` body `{session_id, recipe_id}` saves the card on the client and adds one point. A repeat save adds no further point. `GET /api/v1/recipes/saved?session_id=` returns the saved recipes. `DELETE /api/v1/recipes/saved/{recipe_id}?session_id=` removes one save. `GET /api/v1/recipes/{id}?session_id=` returns one card stored for that client.
+
+Recipe fields: `id`, `title`, `description`, `time_min`, `servings` (household size), `difficulty` (`easy` or `medium`), `tags`, `why_good_for_you`, `ingredients`, `uses_from_cart`, `missing_ingredients`, `steps`, `nutrition_per_serving`, `pantry_staples_assumed`, `source` (`ai` or `library`). Each ingredient has `product`, `name`, `amount`, `in_cart`, `status`, and `location`. `missing_ingredients` is present for cart mode and contains only in-stock, non-red foods.
+
 ### `POST /recommendations`
 
 No JWT. Body `{session_id}`. Returns `{recommendations,recipes,mode,model,review_required}`.
