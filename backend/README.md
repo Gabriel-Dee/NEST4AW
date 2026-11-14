@@ -5,6 +5,30 @@ with deterministic clinical voting, encrypted enrollment, floor-card sessions, F
 real PaddleOCR scanning, and locally generated Ollama recommendations. Frontend and mobile
 code are separate and are not modified by this backend.
 
+## Shopping contract (`/api/v1`)
+
+Mobile and web clients call these routes with `Authorization: Bearer` for account
+actions and `X-Visit-Token` for a store visit. The same account and store routes also
+remain at their original paths.
+
+`POST /api/v1/scan`, `GET/POST /api/v1/cart`, `PATCH/DELETE /api/v1/cart/items/{product_id}`,
+`GET /api/v1/recommendations`, and `POST /api/v1/checkout/{visit_token}/validate|complete`
+return a status object from the rules engine: `level`, `label`, `reason`, `limit_qty`,
+and `triggers`. Green is "Great choice", yellow is "Limit to 1", red is "Not for you today".
+A missing nutrient is yellow, "Ask a volunteer". A barcode imported live from Open Food
+Facts is yellow, "Not verified yet", until staff have reviewed it. The model does not
+choose the color. Recommendations and substitutes on these routes are the deterministic
+fallback (`source: "fallback"`): in-stock green items in the same category. Errors on
+`/api/v1` are `{"error": {"code", "message"}}`.
+
+Recipe routes stay at `/api/v1/recipes`. `POST /recipes/from-cart` accepts the visit
+token header when the body has no `session_id`.
+
+The local model is Ollama `qwen2.5:1.5b` at `OLLAMA_URL` (default `http://127.0.0.1:11434`).
+It is an open-weight model, not a paid API. Embeddings are not configured yet, so
+product similarity is category plus the rules engine. If the model is down, recipes
+fall back to the seeded library.
+
 ## Start locally
 
 Use Python 3.12 or 3.13 for the complete CPU/OCR environment. The core API also runs on 3.14.

@@ -138,3 +138,21 @@ class LotCreate(Strict):
         if self.expires_on <= self.arrived_on:
             raise ValueError("expiration must follow arrival")
         return self
+
+
+class ScanCode(Strict):
+    code: str = Field(min_length=1, max_length=100)
+    source: Literal["camera", "manual"] = "camera"
+
+
+class CartItem(Strict):
+    product_id: UUID
+    qty: int = Field(default=1, ge=1, le=99, strict=True)
+
+
+class CartQty(Strict):
+    qty: int = Field(ge=0, le=99, strict=True)
+
+
+class CheckoutCodes(Strict):
+    codes: list[str] = Field(min_length=1, max_length=200)

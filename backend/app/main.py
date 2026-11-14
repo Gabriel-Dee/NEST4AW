@@ -12,7 +12,7 @@ from starlette.exceptions import HTTPException
 
 from app.config import settings
 from app.errors import APIError
-from app.routes import accounts, ai, clients, health, products, recipes, stores, warehouse
+from app.routes import accounts, ai, clients, health, products, recipes, stores, v1, warehouse
 from app.rules import RuleEngine
 from seed.load import initialize
 
@@ -47,43 +47,47 @@ def create_app():
         CORSMiddleware,
         allow_origins=cfg.cors_origins,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["Authorization", "Content-Type", "X-Visit-Token", "X-Kiosk-Code"],
     )
 
-    def error(status, code, message, **extra):
-        return JSONResponse(
-            status_code=status, content={"error": code, "message": message, **extra}
-        )
+    def error(request, status, code, message, **extra):
+        if request.url.path.startswith("/api/v1/"):
+            content = {"error": {"code": code, "message": message, **extra}}
+        else:
+            content = {"error": code, "message": message, **extra}
+        return JSONResponse(status_code=status, content=content)
 
     @app.exception_handler(APIError)
     async def domain_error(request, exc):
         code = exc.code
         if code == "session_inactive" and request.query_params.get("response_format") == "summary":
             code = "session_not_active"
-        return error(exc.status, code, exc.message, **exc.details)
+        return error(request, exc.status, code, exc.message, **exc.details)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
-        return error(422, "invalid_input", "request fields are invalid")
+        if request.url.path.startswith("/api/v1/"):
+            return error(request, 422, "VALIDATION_ERROR", "request fields are invalid")
+        return error(request, 422, "invalid_input", "request fields are invalid")
 
     @app.exception_handler(HTTPException)
     async def http_error(request, exc):
-        return error(exc.status_code, "http_error", "request could not be completed")
+        return error(request, exc.status_code, "http_error", "request could not be completed")
 
     @app.exception_handler(IntegrityError)
     async def constraint_error(request, exc):
-        return error(409, "conflict", "record conflicts with existing data")
+        return error(request, 409, "conflict", "record conflicts with existing data")
 
     @app.exception_handler(OperationalError)
     @app.exception_handler(PoolTimeout)
     async def unavailable(request, exc):
-        return error(503, "unavailable", "database unavailable")
+        return error(request, 503, "unavailable", "database unavailable")
 
     @app.exception_handler(Exception)
     async def internal_error(request, exc):
         # Do not log request bodies, tokens, exception values, SQL params, or PHI.
         logging.getLogger("nest").error("request failed: %s", type(exc).__name__)
-        return error(500, "internal_error", "request could not be completed")
+        return error(request, 500, "internal_error", "request could not be completed")
 
     @app.middleware("http")
     async def private_responses(request: Request, call_next):
@@ -95,6 +99,9 @@ def create_app():
 
     for module in (health, accounts, clients, warehouse, ai, products, recipes, stores):
         app.include_router(module.router)
+    app.include_router(accounts.router, prefix="/api/v1")
+    app.include_router(stores.router, prefix="/api/v1")
+    app.include_router(v1.router)
     return app
 
 

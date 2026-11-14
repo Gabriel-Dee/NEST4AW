@@ -6,12 +6,13 @@ from uuid import UUID
 from fastapi import APIRouter, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from psycopg.types.json import Json
+from pydantic import Field
 
 from app.errors import APIError
 from app.floor import active_session
-from app.schemas import SessionBody
+from app.schemas import SessionBody, Strict
 from app.services import recipes as recipe_service
-from app.visits import store_of_session
+from app.visits import resolve_visit_token, store_of_session
 from seed.recipes import seed_library
 
 router = APIRouter(prefix="/api/v1/recipes")
@@ -19,6 +20,11 @@ router = APIRouter(prefix="/api/v1/recipes")
 
 class SaveRecipe(SessionBody):
     recipe_id: UUID
+
+
+class CartRecipes(Strict):
+    session_id: UUID | None = None
+    cart_version: int | None = Field(default=None, ge=0)
 
 
 def load_templates(conn):
@@ -144,9 +150,27 @@ async def for_me(request: Request, session_id: UUID = Query()):
     return await run_in_threadpool(serve, request.app, session_id, "profile")
 
 
+def session_for_cart(request: Request, body: CartRecipes) -> UUID:
+    if body.session_id is not None:
+        return body.session_id
+    token = request.headers.get("x-visit-token")
+    if not token:
+        raise APIError(401, "SESSION_INVALID", "visit token is required")
+    with request.app.state.pool.connection() as conn:
+        try:
+            visit = resolve_visit_token(conn, token)
+        except APIError as exc:
+            raise APIError(401, "SESSION_INVALID", "visit token is not valid") from exc
+    if visit["status"] != "active":
+        raise APIError(409, "SESSION_INVALID", "visit is not active")
+    return visit["id"]
+
+
 @router.post("/from-cart")
-async def from_cart(body: SessionBody, request: Request):
-    return await run_in_threadpool(serve, request.app, body.session_id, "cart")
+async def from_cart(request: Request, body: CartRecipes | None = None):
+    payload = body or CartRecipes()
+    session_id = await run_in_threadpool(session_for_cart, request, payload)
+    return await run_in_threadpool(serve, request.app, session_id, "cart")
 
 
 @router.post("/saved")
