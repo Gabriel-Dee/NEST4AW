@@ -1,6 +1,6 @@
 """Epic Cure warehouse plus nearby partner sites. Existing lots stay on the main store."""
 
-import json
+from psycopg.types.json import Json
 
 HOURS = {day: ["00:00", "23:59"] for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun")}
 
@@ -52,7 +52,7 @@ def seed_stores(conn):
                 store["city"],
                 store["lat"],
                 store["lng"],
-                json.dumps(HOURS),
+                Json(HOURS),
                 store["max_floor_capacity"],
                 store["kiosk_code"],
             ),
