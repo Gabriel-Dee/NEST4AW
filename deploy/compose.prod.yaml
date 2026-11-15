@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
   api:
     restart: unless-stopped
+    # Caddy owns the public ports; any host port edit in backend/compose.yaml is replaced here.
+    ports: !override
+      - "127.0.0.1:8000:8000"
   ollama:
     restart: unless-stopped
   ocr:
