@@ -85,10 +85,12 @@ def from_off(data):
         per100 = number(n.get("energy-kcal_100g"))
         energy = None if per100 is None else per100 * serving / 100
     result["calories_kcal"] = energy if n.get("energy-kcal_unit") == "kcal" else None
-    category = " ".join(data.get("categories_tags", [])).lower()
-    result["is_juice"] = "juice" in category
-    result["is_drink"] = result["is_juice"] or any(
-        k in category for k in ("beverages", "drinks", "sodas")
+    tags = {str(t).lower() for t in data.get("categories_tags") or []}
+    result["is_juice"] = any("juice" in t for t in tags)
+    # Match whole tags: OFF files almost every plant food under
+    # "en:plant-based-foods-and-beverages", so a substring match made oats a drink.
+    result["is_drink"] = result["is_juice"] or bool(
+        tags & {"en:beverages", "en:drinks", "en:sodas", "en:waters"}
     )
     return result
 

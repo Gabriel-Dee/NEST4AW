@@ -32,7 +32,7 @@ class RuleEngine:
     def evaluate(self, person, product):
         if product is None:
             return {"verdict": "unknown", "reasons": [], "product": None}
-        votes, reasons = [], []
+        votes, reasons, voted = [], [], {}
 
         def vote(color, rule=None):
             if rule:
@@ -41,6 +41,7 @@ class RuleEngine:
             if rule:
                 row = self.rules[rule]
                 reasons.append({"rule_id": rule, "source": row["source"]})
+                voted[rule] = color
 
         def threshold(key):
             return self.rules[key]["threshold"]
@@ -78,21 +79,32 @@ class RuleEngine:
             elif potassium >= threshold("K_ORDER"):
                 vote("red", "K_ORDER")
         if person.get("dm"):
-            if product.get("is_drink") or product.get("is_juice"):
+            sugar = product.get("added_sugar_g")
+            # ADA rec 5.25: replace sugar-sweetened drinks and juice with water. Water itself is
+            # not red. For drinks use the larger of added and total sugar, because some OFF
+            # records list 0 g added sugar on a full-sugar soda.
+            drink_sugar = max(
+                (v for v in (sugar, product.get("sugar_g")) if v is not None), default=None
+            )
+            if product.get("is_juice") or (
+                product.get("is_drink")
+                and drink_sugar is not None
+                and drink_sugar >= threshold("SUG_G")
+            ):
                 vote("red", "SUG_DRINK")
+            elif sugar is None:
+                vote("unknown")
+            elif sugar < threshold("SUG_G"):
+                vote("green", "SUG_G")
+            elif sugar >= threshold("SUG_Y"):
+                vote("yellow", "SUG_Y")
             else:
-                sugar = product.get("added_sugar_g")
-                if sugar is None:
-                    vote("unknown")
-                elif sugar < threshold("SUG_G"):
-                    vote("green", "SUG_G")
-                elif sugar >= threshold("SUG_Y"):
-                    vote("yellow", "SUG_Y")
-                else:
-                    vote("unknown")
+                vote("unknown")
             if product.get("gi") is not None and product["gi"] >= threshold("GI_Y"):
                 vote("yellow", "GI_Y")
         verdict = next((c for c in ("red", "yellow", "unknown") if c in votes), "green")
+        # Lead with a rule that decided the verdict, so the shown reason matches the color.
+        reasons.sort(key=lambda r: voted[r["rule_id"]] != verdict)
         return {
             "verdict": verdict,
             "reasons": reasons,
@@ -118,6 +130,7 @@ class Item:
     potassium_mg: object = None
     phosphorus_mg: object = None
     added_sugar_g: object = None
+    sugar_g: object = None
     carb_g: object = None
     fiber_g: object = None
     gi: object = None

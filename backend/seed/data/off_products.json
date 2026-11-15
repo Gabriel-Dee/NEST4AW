@@ -382,7 +382,7 @@
       "fiber_g": 1.75,
       "calories_kcal": 95.7,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Cream cheese",
@@ -608,7 +608,7 @@
       "fiber_g": 2.57,
       "calories_kcal": 106.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "cruesly mélange de noix",
@@ -634,7 +634,7 @@
       "fiber_g": 4.5,
       "calories_kcal": 208.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Tartines craquantes au sarrasin imp",
@@ -658,7 +658,7 @@
       "fiber_g": 4.4,
       "calories_kcal": 388.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Sésame",
@@ -785,7 +785,7 @@
       "fiber_g": null,
       "calories_kcal": null,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "La Hollandaise Cheddar",
@@ -971,7 +971,7 @@
       "fiber_g": 3.47,
       "calories_kcal": 120.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "KRISPROLLS Complets",
@@ -997,7 +997,7 @@
       "fiber_g": null,
       "calories_kcal": null,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Brioche Tranchée Bio 400g",
@@ -1024,7 +1024,7 @@
       "fiber_g": 1.04,
       "calories_kcal": 89.7,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Cappy PULPY",
@@ -1096,7 +1096,7 @@
       "fiber_g": 2.4,
       "calories_kcal": 80.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "levure pâtisserie",
@@ -1146,7 +1146,7 @@
       "fiber_g": 2.95,
       "calories_kcal": 104.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Goldium crémeux",
@@ -1222,7 +1222,7 @@
       "fiber_g": 1.82,
       "calories_kcal": 108.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "AUTHENTIQUE",
@@ -1248,7 +1248,7 @@
       "fiber_g": 2.17,
       "calories_kcal": 38.3,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Eau minérale naturelle",
@@ -1298,7 +1298,7 @@
       "fiber_g": 2.6,
       "calories_kcal": 33.3,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Nocciolata",
@@ -1375,7 +1375,7 @@
       "fiber_g": 7.0,
       "calories_kcal": 610.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Croustillant Chocolat",
@@ -1401,7 +1401,7 @@
       "fiber_g": 6.0,
       "calories_kcal": 259.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Barilla PESTO alla GENOVESE",
@@ -1527,7 +1527,7 @@
       "fiber_g": 0.0,
       "calories_kcal": 48.5,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Ciel",
@@ -1627,7 +1627,7 @@
       "fiber_g": null,
       "calories_kcal": null,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Assil vanille",
@@ -1803,7 +1803,7 @@
       "fiber_g": 1.46,
       "calories_kcal": 102.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Tartine & Cuisine",
@@ -1827,7 +1827,7 @@
       "fiber_g": null,
       "calories_kcal": null,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "ain saiss 50cl",
@@ -2131,7 +2131,7 @@
       "fiber_g": 8.3,
       "calories_kcal": 622.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Flocons d'avoine",
@@ -2157,7 +2157,7 @@
       "fiber_g": 6.6,
       "calories_kcal": 217.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Be Nuts ! - Pâte à tartiner Cacahuète",
@@ -2183,7 +2183,7 @@
       "fiber_g": null,
       "calories_kcal": null,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Nutella",
@@ -2340,7 +2340,7 @@
       "fiber_g": 6.0,
       "calories_kcal": 211.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Chocapic",
@@ -2366,7 +2366,7 @@
       "fiber_g": 2.31,
       "calories_kcal": 115.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Nutella Plant-Based",
@@ -2416,7 +2416,7 @@
       "fiber_g": 3.63,
       "calories_kcal": 186.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Tuc Original",
@@ -2495,7 +2495,7 @@
       "fiber_g": 3.96,
       "calories_kcal": 162.0,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Mayonnaise recette originale",
@@ -2656,7 +2656,7 @@
       "fiber_g": null,
       "calories_kcal": null,
       "is_juice": false,
-      "is_drink": true
+      "is_drink": false
     },
     {
       "name": "Petites gambas compotée de tomates Tagliatelles au pesto",

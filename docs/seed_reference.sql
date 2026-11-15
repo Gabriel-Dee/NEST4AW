@@ -81,7 +81,7 @@ INSERT INTO rules (
   'ADA 2025 rec 5.25: replace sugar-sweetened drinks, including fruit juice, with water.',
   'https://diabetesjournals.org/care/article/48/Supplement_1/S86/157563/5-Facilitating-Positive-Health-Behaviors-and-Well',
   false,
-  'Any drink or juice is red on a diabetes tier even when sodium is 0.'
+  'Juice, or a drink with 0.5 g or more sugar (added or total, whichever is larger), is red on a diabetes tier even when sodium is 0. Water and unsweetened drinks follow the normal sugar bands; missing sugar data is Ask a volunteer.'
 ),
 (
   'SUG_G', 'dm', 'added_sugar_g', 'lt', 0.5, 'green',
