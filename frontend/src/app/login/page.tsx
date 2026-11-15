@@ -6,8 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { roleHome } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Eye, EyeOff, LayoutDashboard, Package, ScanLine, ShoppingCart, Stethoscope } from "lucide-react";
-import Link from "next/link";
+import { Eye, EyeOff, LayoutDashboard, Package, ShoppingCart, Stethoscope } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 
@@ -122,15 +121,6 @@ export default function LoginPage() {
               {loading ? "Signing in…" : "Sign in"}
             </Button>
           </form>
-
-          <div className="rounded-2xl border bg-card p-4 text-sm">
-            <p className="font-medium">Setting up a kiosk?</p>
-            <p className="mt-1 text-muted-foreground">The self-check-in scanner runs full screen without a staff login.</p>
-            <Link href="/kiosk" className="mt-3 inline-flex items-center gap-2 font-medium text-primary underline-offset-4 hover:underline">
-              <ScanLine className="size-4" aria-hidden />
-              Open kiosk scanner
-            </Link>
-          </div>
         </div>
       </main>
     </div>

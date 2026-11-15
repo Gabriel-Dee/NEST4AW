@@ -12,7 +12,6 @@ import {
   Menu,
   Package,
   QrCode,
-  ScanLine,
   ShoppingCart,
   Stethoscope,
   UserRound,
@@ -36,7 +35,6 @@ const NAV: NavItem[] = [
   { href: "/checkout", label: "Checkout", hint: "Scan carts at the exit and stop restricted items.", icon: ShoppingCart, roles: ["warehouse_staff", "admin"], group: "Floor" },
   { href: "/warehouse", label: "Warehouse", hint: "Floor board, stock levels and lots.", icon: Package, roles: ["warehouse_staff", "admin"], group: "Floor" },
   { href: "/kiosk/display", label: "Kiosk QR", hint: "Show the store check-in code for shoppers to scan.", icon: QrCode, roles: ["warehouse_staff", "admin"], group: "Floor" },
-  { href: "/kiosk", label: "Kiosk scanner", hint: "Full-screen kiosk that scans shopper codes.", icon: ScanLine, roles: ["warehouse_staff", "admin"], group: "Floor" },
   { href: "/admin/clinical", label: "Clinical intake", hint: "Enroll clients and record conditions.", icon: Stethoscope, roles: ["doctor", "admin"], group: "Clinical" },
   { href: "/admin/rules", label: "Rules matrix", hint: "The clinical thresholds behind every color.", icon: ClipboardList, roles: ["doctor", "admin"], group: "Clinical" },
   { href: "/admin/analytics", label: "Grant report", hint: "Anonymized distribution by grant and tier.", icon: LayoutDashboard, roles: ["admin", "community_partner"], group: "Admin" },
@@ -70,20 +68,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const isKioskScan = pathname === "/kiosk";
   const isLogin = pathname.startsWith("/login");
 
   useEffect(() => {
-    if (!ready || isLogin || isKioskScan) return;
+    if (!ready || isLogin) return;
     if (!user) {
       router.replace("/login");
       return;
     }
     const allowed = activeItem(pathname, NAV.filter((i) => i.roles.includes(user.role)));
     if (!allowed && pathname !== roleHome(user.role)) router.replace(roleHome(user.role));
-  }, [ready, user, router, isLogin, isKioskScan, pathname]);
+  }, [ready, user, router, isLogin, pathname]);
 
-  if (isLogin || isKioskScan) {
+  if (isLogin) {
     return <>{children}</>;
   }
 

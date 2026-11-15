@@ -14,7 +14,6 @@ export const USE_MOCK =
 
 const TOKEN_KEY = "nest-access-token";
 const VISIT_KEY = "nest-visit-token";
-const KIOSK_KEY = "nest-kiosk-code";
 
 export const ERROR_MESSAGES: Record<string, string> = {
   unauthorized: "Please sign in again.",
@@ -208,17 +207,6 @@ export function setVisitToken(token: string | null) {
   else sessionStorage.removeItem(VISIT_KEY);
 }
 
-export function getKioskCode() {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(KIOSK_KEY);
-}
-
-export function setKioskCode(code: string | null) {
-  if (typeof window === "undefined") return;
-  if (code) localStorage.setItem(KIOSK_KEY, code);
-  else localStorage.removeItem(KIOSK_KEY);
-}
-
 function errorMessage(data: unknown, fallback: string) {
   if (!data || typeof data !== "object") return fallback;
   const body = data as {
@@ -247,7 +235,7 @@ function errorCode(data: unknown) {
 /** Legacy (unversioned) routes still used by staff/admin screens. */
 export async function api<T>(
   path: string,
-  init: RequestInit & { auth?: boolean; visit?: boolean; kiosk?: boolean } = {},
+  init: RequestInit & { auth?: boolean; visit?: boolean} = {},
 ): Promise<T> {
   return request<T>(`${API_URL}${path}`, init);
 }
@@ -255,7 +243,7 @@ export async function api<T>(
 /** Preferred /api/v1 client surface. */
 export async function apiV1<T>(
   path: string,
-  init: RequestInit & { auth?: boolean; visit?: boolean; kiosk?: boolean } = {},
+  init: RequestInit & { auth?: boolean; visit?: boolean} = {},
 ): Promise<T> {
   const p = path.startsWith("/") ? path : `/${path}`;
   return request<T>(`${API_V1}${p}`, init);
@@ -263,7 +251,7 @@ export async function apiV1<T>(
 
 async function request<T>(
   url: string,
-  init: RequestInit & { auth?: boolean; visit?: boolean; kiosk?: boolean } = {},
+  init: RequestInit & { auth?: boolean; visit?: boolean} = {},
 ): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("Content-Type")) {
@@ -276,10 +264,6 @@ async function request<T>(
   if (init.visit) {
     const visit = getVisitToken();
     if (visit) headers.set("X-Visit-Token", visit);
-  }
-  if (init.kiosk) {
-    const code = getKioskCode();
-    if (code) headers.set("X-Kiosk-Code", code);
   }
   const res = await fetch(url, { ...init, headers });
   const text = await res.text();
@@ -396,24 +380,6 @@ export async function me(): Promise<AuthUser> {
   return { id: row.id, email: row.email, role: row.role, displayName: row.email };
 }
 
-export type KioskCheckInResult = {
-  status: string;
-  visit_token?: string;
-  queue_position?: number | null;
-  store?: { id: string; name: string };
-};
-
-export async function kioskCheckIn(body: { client_code?: string; qr_token?: string }) {
-  const row = await apiV1<KioskCheckInResult>("/kiosk/check-in", {
-    method: "POST",
-    auth: false,
-    kiosk: true,
-    body: JSON.stringify(body),
-  });
-  if (row.visit_token) setVisitToken(row.visit_token);
-  return row;
-}
-
 /** Payload phones scan on /check-in (must match mobile parseStoreCheckInQr). */
 export function storeCheckInQrPayload(storeId: string) {
   return `NEST4AW:CHECKIN:${storeId}`;
@@ -451,7 +417,7 @@ export function logout() {
   setAccessToken(null);
 }
 
-/** @deprecated Legacy card-token floor arrive. Prefer kioskCheckIn({ qr_token }) or geofence. */
+/** @deprecated Legacy card-token floor arrive. Prefer the store QR / geofence check-in. */
 export function arrive(token: string) {
   return api<SessionView>("/floor/arrive", {
     method: "POST",

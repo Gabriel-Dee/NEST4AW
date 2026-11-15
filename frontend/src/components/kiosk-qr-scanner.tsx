@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Callers: frontend/src/app/kiosk/page.tsx (kiosk check-in camera).
+ * Callers: frontend/src/app/checkout/page.tsx (staff scans the shopper checkout QR).
  * No prior scanner component. Uses html5-qrcode; emits decoded QR string.
  * User: "make sure our frontends have a qr code scanning checking implemented"
  */
