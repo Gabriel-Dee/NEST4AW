@@ -18,6 +18,7 @@ import { theme } from '../../theme';
 export default function CheckoutScreen() {
   const router = useRouter();
   const [sessionId, setSessionId] = useState('');
+  const [firstName, setFirstName] = useState('');
   const [cart, setCart] = useState<CartSnapshot | null>(null);
   const [saved, setSaved] = useState<RecipeCard[]>([]);
   const [code, setCode] = useState<{ code: string; qr: string; expiresAt: string } | null>(null);
@@ -45,6 +46,7 @@ export default function CheckoutScreen() {
       Promise.all([getSession(), getCart(), getSavedRecipes().catch(() => [] as RecipeCard[])]).then(([home, c, s]) => {
         if (!alive) return;
         setSessionId(home.id);
+        setFirstName(home.firstName === 'there' ? '' : home.firstName);
         setCart(c);
         setSaved(s);
         if (home.id) void loadCode();
@@ -64,8 +66,11 @@ export default function CheckoutScreen() {
         <Card>
           <EmptyState
             icon="checkmark-circle-outline"
-            title="You're all checked out"
-            body="Thank you for shopping with Epic Cure. See you next time!"
+            title={firstName ? `You're all checked out, ${firstName}!` : "You're all checked out!"}
+            body={
+              'Thank you for shopping with Epic Cure today. We hope you enjoy your meals.\n\n' +
+              "Welcome back again anytime. We're always happy to see you!"
+            }
             action={{ label: 'Back to home', onPress: () => router.navigate('/') }}
           />
         </Card>
