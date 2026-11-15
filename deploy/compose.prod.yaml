@@ -1,0 +1,35 @@
+# Production overlay. Used by deploy/deploy.sh together with backend/compose.yaml:
+#   docker compose -f backend/compose.yaml -f deploy/compose.prod.yaml --profile ai up -d
+# Relative paths resolve from backend/ (the first file's folder).
+services:
+  postgres:
+    restart: unless-stopped
+  api:
+    restart: unless-stopped
+  ollama:
+    restart: unless-stopped
+  ocr:
+    restart: unless-stopped
+  frontend:
+    build: ../frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8010:8010"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?run deploy/deploy.sh}
+      API_DOMAIN: ${API_DOMAIN:?run deploy/deploy.sh}
+      PUBLIC_IP: ${PUBLIC_IP:?run deploy/deploy.sh}
+    volumes:
+      - ../deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+volumes:
+  caddy-data:
+  caddy-config:
