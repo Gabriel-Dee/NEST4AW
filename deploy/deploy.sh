@@ -150,15 +150,22 @@ api_healthy || die "API did not start; see: docker compose -p $PROJECT -f backen
 
 # ---------------------------------------------------------------- 7. models
 step "Downloading the recipe model ($OLLAMA_MODEL)"
-dc exec -T ollama ollama pull "$OLLAMA_MODEL"
+# The Ollama server needs a few seconds after the container starts.
+for _ in $(seq 1 30); do dc exec -T ollama ollama list >/dev/null 2>&1 && break; sleep 2; done
+pulled=0
+for _ in 1 2 3; do dc exec -T ollama ollama pull "$OLLAMA_MODEL" && { pulled=1; break; }; sleep 5; done
+[ "$pulled" = 1 ] || warn "model download failed; recipes fall back to stored text until you re-run this script"
 
 step "Downloading and warming the OCR model"
-dc exec -T ocr python -c 'from paddleocr import PaddleOCR; PaddleOCR(text_detection_model_name="PP-OCRv5_mobile_det", text_recognition_model_name="en_PP-OCRv5_mobile_rec", use_doc_orientation_classify=False, use_doc_unwarping=False, use_textline_orientation=True, device="cpu")' >/dev/null
+dc exec -T ocr python -c 'from paddleocr import PaddleOCR; PaddleOCR(text_detection_model_name="PP-OCRv5_mobile_det", text_recognition_model_name="en_PP-OCRv5_mobile_rec", use_doc_orientation_classify=False, use_doc_unwarping=False, use_textline_orientation=True, device="cpu")' >/dev/null 2>&1 ||
+  warn "OCR warm-up failed; the first label scan will be slow or unavailable (logs: dc logs ocr)"
 
 # ---------------------------------------------------------------- 8. demo users
 step "Creating the same demo accounts as local (@epic.com and @demo.local)"
-dc exec -T -e ACCOUNT_SEED_PASSWORD="$DEMO_PASSWORD" api python -m seed.accounts > deploy/accounts.log 2>&1 ||
-  { cat deploy/accounts.log; die "account seed failed"; }
+if ! dc exec -T -e ACCOUNT_SEED_PASSWORD="$DEMO_PASSWORD" api python -m seed.accounts > deploy/accounts.log 2>&1; then
+  warn "account seed reported a problem (existing accounts still get the demo password below):"
+  tail -5 deploy/accounts.log
+fi
 chmod 600 deploy/accounts.log
 # Accounts made by an earlier deploy may have another password; align the fictional demo ones only.
 dc exec -T -e DEMO_PASSWORD="$DEMO_PASSWORD" api python - <<'PY'
