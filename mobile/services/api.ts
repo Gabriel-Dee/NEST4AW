@@ -110,13 +110,14 @@ const CONDITION_ICD: Record<string, string> = {
   'Chronic Kidney Disease': 'N18.3',
   ckd_stage_3_4: 'N18.3',
 };
-const ALLERGY_CODE: Record<string, string> = {
-  Nuts: 'peanuts',
-  Dairy: 'milk',
-  Gluten: 'wheat',
-  Shellfish: 'crustacean_shellfish',
-  Egg: 'eggs',
-  Soy: 'soybeans',
+// "Nuts" must cover both FDA major allergens, or almonds scan as safe for a nut allergy.
+const ALLERGY_CODE: Record<string, string[]> = {
+  Nuts: ['peanuts', 'tree_nuts'],
+  Dairy: ['milk'],
+  Gluten: ['wheat'],
+  Shellfish: ['crustacean_shellfish'],
+  Egg: ['eggs'],
+  Soy: ['soybeans'],
 };
 
 export const ERROR_MESSAGES: Record<string, string> = {
@@ -565,7 +566,7 @@ export async function register(input: {
   allergies: string[];
 }) {
   const icd10_codes = input.conditions.map((c) => CONDITION_ICD[c]).filter(Boolean);
-  const allergies = input.allergies.map((a) => ALLERGY_CODE[a] || a.toLowerCase()).filter(Boolean);
+  const allergies = input.allergies.flatMap((a) => ALLERGY_CODE[a] || [a.toLowerCase()]).filter(Boolean);
   const row = await call<{ access_token: string; client?: Record<string, unknown> }>('/auth/register', {
     method: 'POST',
     auth: false,
@@ -847,7 +848,14 @@ async function cartLines(): Promise<CartLine[]> {
   if (!floor?.visitToken && !USE_MOCK) return [];
   try {
     const data = await call<unknown>('/cart');
-    const rows = Array.isArray(data) ? data : record(data) && Array.isArray(data.lines) ? data.lines : [];
+    // GET /api/v1/cart returns { items: [{ product, status, qty }], summary, nutrient_totals }.
+    const rows = Array.isArray(data)
+      ? data
+      : record(data) && Array.isArray(data.items)
+        ? data.items
+        : record(data) && Array.isArray(data.lines)
+          ? data.lines
+          : [];
     return rows
       .filter(record)
       .map((row) => {
