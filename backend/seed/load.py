@@ -33,7 +33,22 @@ def initialize(conn):
     for migration in sorted((ROOT / "backend/migrations").glob("*.sql")):
         conn.execute(migration.read_text())
     seed_library(conn)
+    stock_demo_sheet(conn)
     seed_stores(conn)
+
+
+def stock_demo_sheet(conn):
+    """Stock the barcode-test-sheet products so scanning them in the demo can add to cart.
+
+    Idempotent: insert_product skips existing barcodes and stock_demo skips stocked products.
+    seed_stores() then copies the stock to every partner store.
+    """
+    snapshot = ROOT / "backend/seed/data/demo_sheet_products.json"
+    for i, food in enumerate(json.loads(snapshot.read_text())["products"], start=2000):
+        pid = insert_product(conn, food) or conn.execute(
+            "SELECT id FROM products WHERE barcode=%s", (food["barcode"],)
+        ).fetchone()["id"]
+        stock_demo(conn, pid, i)
 
 
 def insert_product(conn, food):

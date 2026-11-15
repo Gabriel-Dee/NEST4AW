@@ -69,3 +69,10 @@ def test_registered_client_scans_end_to_end(api, db):
     assert level("3229820019307")["level"] != "red"  # Flocons d'avoine (oats)
     peanut = level("3327272107969")  # 100% peanut butter
     assert peanut["level"] == "red" and peanut["reason"] == "ALG"
+
+    # Barcode test sheet items are stocked at startup, so a green scan can go in the cart.
+    oats = api.post("/api/v1/scan", headers=headers, json={"code": "0030000010402"}).json()
+    assert oats["status"]["level"] == "green", oats["status"]
+    added = api.post("/api/v1/cart/items", headers=headers, json={"product_id": oats["product"]["id"], "qty": 1})
+    assert added.status_code == 200, added.text
+    assert api.get("/api/v1/cart", headers=headers).json()["items"][0]["qty"] == 1
