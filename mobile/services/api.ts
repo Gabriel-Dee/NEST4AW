@@ -892,16 +892,22 @@ export async function addToCart(
 ): Promise<{ added: boolean; product: Product | null; message?: string }> {
   const known = catalog.find((item) => item.sku === sku) ?? null;
   if (!known?.productId) return { added: false, product: known, message: 'Scan the item again, then add it.' };
+  const result = await addProductToCart(known.productId, known.verdict);
+  return { ...result, product: known };
+}
+
+/** Add by product id (scan result, recipe ingredients). Returns the server's reason on failure. */
+export async function addProductToCart(
+  productId: string,
+  verdict?: Verdict | null,
+): Promise<{ added: boolean; message?: string }> {
   try {
-    await call('/cart/items', {
-      method: 'POST',
-      body: JSON.stringify({ product_id: known.productId, qty: 1 }),
-    });
-    if (known.verdict === 'green' && !counted.has(known.productId)) {
-      counted.add(known.productId);
+    await call('/cart/items', { method: 'POST', body: JSON.stringify({ product_id: productId, qty: 1 }) });
+    if (verdict === 'green' && !counted.has(productId)) {
+      counted.add(productId);
       points += 1;
     }
-    return { added: true, product: known };
+    return { added: true };
   } catch (e) {
     const code = e instanceof ApiError ? e.code : '';
     const message =
@@ -910,8 +916,36 @@ export async function addToCart(
         : e instanceof ApiError
           ? e.message
           : undefined;
-    return { added: false, product: known, message };
+    return { added: false, message };
   }
+}
+
+export type Availability = {
+  verdict: Verdict | null;
+  reasonText: string;
+  hereInStock: boolean;
+  location: string;
+  elsewhere: { storeId: string; name: string; address: string }[];
+};
+
+/** Is a recipe ingredient in stock at this store, and if not, which other stores have it? */
+export async function getAvailability(productId: string): Promise<Availability> {
+  const data = await call<Record<string, unknown>>(`/products/${productId}/availability`);
+  const status = record(data.status) ? data.status : null;
+  const verdict = statusLevel(status);
+  const here = record(data.here) ? data.here : {};
+  const loc = record(here.location) ? here.location : null;
+  return {
+    verdict,
+    reasonText: verdict ? explainStatus(status, verdict).text : '',
+    hereInStock: Boolean(here.in_stock),
+    location: loc ? locationText({ aisle: loc.aisle, shelf: loc.shelf, bin: loc.bin }) : '',
+    elsewhere: (Array.isArray(data.elsewhere) ? data.elsewhere : []).filter(record).map((s) => ({
+      storeId: String(s.store_id ?? ''),
+      name: String(s.name ?? 'Another store'),
+      address: String(s.address ?? ''),
+    })),
+  };
 }
 
 export async function removeFromCart(productId: string) {
@@ -923,6 +957,7 @@ export function locationLabel(product: Pick<Product, 'aisle' | 'shelf' | 'bin'>)
 }
 
 export type RecipeIngredient = {
+  productId?: string;
   name: string;
   amount: string;
   inCart: boolean;
@@ -968,6 +1003,7 @@ function mapRecipe(recipe: Record<string, unknown>, fallbackSource: string): Rec
   const ingredients = (Array.isArray(recipe.ingredients) ? recipe.ingredients : []).filter(record).map((item) => {
     const product = record(item.product) ? item.product : {};
     return {
+      productId: product.id ? String(product.id) : undefined,
       name: String(item.name ?? product.name ?? 'Ingredient'),
       amount: String(item.amount ?? ''),
       inCart: Boolean(item.in_cart),
