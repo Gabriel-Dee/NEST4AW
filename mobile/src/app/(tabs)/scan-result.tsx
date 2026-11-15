@@ -14,6 +14,7 @@ export default function ScanResultScreen() {
   const [result, setResult] = useState<{ sku: string; product: Product | null } | null>(null);
   const [view, setView] = useState<{ sku: string; showWhy: boolean; added: 'no' | 'yes' | 'failed' }>({ sku: '', showWhy: false, added: 'no' });
   const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState('');
   // Everything is keyed by sku, so scanning a new item starts fresh without resetting state in an effect.
   const product: Product | null | undefined = !key ? null : result?.sku === key ? result.product : undefined;
   const current = view.sku === key ? view : { sku: key, showWhy: false, added: 'no' as const };
@@ -42,6 +43,7 @@ export default function ScanResultScreen() {
     setAdding(true);
     const result = await addToCart(product.sku);
     setAdding(false);
+    setAddError(result.message ?? '');
     setAdded(result.added ? 'yes' : 'failed');
   }
 
@@ -116,7 +118,7 @@ export default function ScanResultScreen() {
           {product.verdict === 'yellow' ? (
             <Banner tone="warn" text={`OK in a small amount. Take up to ${product.suggestedQty || 1}.`} />
           ) : null}
-          {added === 'failed' ? <Banner tone="error" text="Couldn't add this item. Please try again." /> : null}
+          {added === 'failed' ? <Banner tone="error" text={addError || "Couldn't add this item. Please try again."} /> : null}
           <Button icon="add-circle-outline" label="Add to cart" onPress={onAdd} loading={adding} />
           <Button variant="secondary" icon="scan" label="Scan another item" onPress={() => router.replace('/(tabs)/scan')} />
         </>

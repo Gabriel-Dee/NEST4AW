@@ -887,9 +887,11 @@ export async function getCart(): Promise<CartSnapshot> {
   };
 }
 
-export async function addToCart(sku: string): Promise<{ added: boolean; product: Product | null }> {
+export async function addToCart(
+  sku: string,
+): Promise<{ added: boolean; product: Product | null; message?: string }> {
   const known = catalog.find((item) => item.sku === sku) ?? null;
-  if (!known?.productId) return { added: false, product: known };
+  if (!known?.productId) return { added: false, product: known, message: 'Scan the item again, then add it.' };
   try {
     await call('/cart/items', {
       method: 'POST',
@@ -900,8 +902,15 @@ export async function addToCart(sku: string): Promise<{ added: boolean; product:
       points += 1;
     }
     return { added: true, product: known };
-  } catch {
-    return { added: false, product: known };
+  } catch (e) {
+    const code = e instanceof ApiError ? e.code : '';
+    const message =
+      code === 'out_of_stock'
+        ? 'Out of stock at this store right now. Ask a volunteer.'
+        : e instanceof ApiError
+          ? e.message
+          : undefined;
+    return { added: false, product: known, message };
   }
 }
 
