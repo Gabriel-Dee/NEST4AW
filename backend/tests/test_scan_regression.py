@@ -76,3 +76,26 @@ def test_registered_client_scans_end_to_end(api, db):
     added = api.post("/api/v1/cart/items", headers=headers, json={"product_id": oats["product"]["id"], "qty": 1})
     assert added.status_code == 200, added.text
     assert api.get("/api/v1/cart", headers=headers).json()["items"][0]["qty"] == 1
+
+
+def test_ingredient_availability_points_to_other_store(api, db):
+    login = api.post("/auth/login", json={"email": "james@epic.com", "password": "nest-local-demo"})
+    if login.status_code != 200:  # seed emails differ by environment
+        login = api.post("/auth/login", json={"email": "james@demo.local", "password": "nest-local-demo"})
+    auth = {"Authorization": "Bearer " + login.json()["token"]}
+    epic = db.execute("SELECT * FROM stores WHERE slug='epic-cure'").fetchone()
+    visit = api.post(f"/stores/{epic['id']}/check-in", headers=auth,
+                     json={"lat": epic["lat"], "lng": epic["lng"], "accuracy_m": 5}).json()
+    headers = {**auth, "X-Visit-Token": visit["visit_token"]}
+    oats = db.execute("SELECT id FROM products WHERE barcode='030000010402'").fetchone()["id"]
+
+    body = api.get(f"/api/v1/products/{oats}/availability", headers=headers).json()
+    assert body["here"]["in_stock"] and body["status"]["level"] == "green"
+    assert {s["name"] for s in body["elsewhere"]} >= {"St. Augustine Beach partner site"}
+
+    db.execute("UPDATE lots SET qty=0 WHERE product_id=%s AND store_id=%s", (oats, epic["id"]))
+    db.commit()
+    body = api.get(f"/api/v1/products/{oats}/availability", headers=headers).json()
+    assert not body["here"]["in_stock"]
+    beach = next(s for s in body["elsewhere"] if "Beach" in s["name"])
+    assert "Beach Boulevard" in beach["address"] and beach["stock"] > 0

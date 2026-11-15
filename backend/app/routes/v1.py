@@ -424,6 +424,35 @@ def delete_item(product_id: UUID, request: Request, conn=Depends(connection, sco
     return cart_payload(conn, request.app.state.engine, person, visit["id"], visit["store_id"])
 
 
+@router.get("/products/{product_id}/availability")
+def availability(product_id: UUID, request: Request, conn=Depends(connection, scope="function")):
+    """Where a recipe ingredient can be picked up: this store first, then other open stores."""
+    visit, person = open_visit(conn, request.headers.get("x-visit-token"))
+    food = product(conn, pid=product_id)
+    if food is None:
+        raise APIError(404, "PRODUCT_NOT_FOUND", "Ask a volunteer")
+    status = evaluate_food(request.app.state.engine, person, food, False)
+    here = product(conn, pid=product_id, store_id=visit["store_id"])
+    elsewhere = []
+    for store in conn.execute(
+        "SELECT id,name,address,city FROM stores WHERE is_active AND id<>%s ORDER BY name",
+        (visit["store_id"],),
+    ).fetchall():
+        found = product(conn, pid=product_id, store_id=store["id"])
+        if found is not None:
+            elsewhere.append(
+                {"store_id": str(store["id"]), "name": store["name"],
+                 "address": f"{store['address']}, {store['city']}", "stock": int(found["stock"])}
+            )
+    return {
+        "product": public_product(here or attach_stock(conn, food, visit["store_id"])),
+        "status": status,
+        "here": {"in_stock": here is not None, "stock": int(here["stock"]) if here else 0,
+                 "location": location_of(here) if here else None},
+        "elsewhere": elsewhere,
+    }
+
+
 @router.get("/recommendations")
 def recommendations(request: Request, conn=Depends(connection, scope="function")):
     visit, person = open_visit(conn, request.headers.get("x-visit-token"))
