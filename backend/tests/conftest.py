@@ -1,78 +1,82 @@
+import json
 import os
+import re
+from pathlib import Path
 
 import pytest
 
-TEST_URL = os.environ.get(
-    "TEST_DATABASE_URL", "postgresql://nest:nest@127.0.0.1:5433/nest_test"
-)
+from app.rules import RuleEngine
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
-def _guard():
-    name = TEST_URL.rsplit("/", 1)[-1].split("?")[0]
-    if not name.startswith("nest_test"):
-        raise RuntimeError("refusing to reset a database that is not nest_test")
+@pytest.fixture(scope="session")
+def golden():
+    return json.loads((ROOT / "docs/golden.json").read_text())
 
 
-@pytest.fixture(scope="session", autouse=True)
-def schema():
-    _guard()
-    os.environ["DATABASE_URL"] = TEST_URL
-    os.environ["JWT_SECRET"] = "test-jwt-secret-value-at-least-32b"
-    os.environ["PHI_KEY"] = "test-phi-key-value"
-    os.environ["HMAC_KEY"] = "test-hmac-key-value"
-    os.environ["SEED_PASSWORD"] = "nest-local-demo"
-    from app.db import apply_schema, connect
-
-    with connect(TEST_URL) as conn:
-        conn.execute("DROP SCHEMA public CASCADE")
-        conn.execute("CREATE SCHEMA public")
-        apply_schema(conn)
-    return TEST_URL
+@pytest.fixture(scope="session")
+def engine():
+    # Unit tests read the authoritative SQL fixture; production always reads PostgreSQL.
+    text = (ROOT / "docs/seed_reference.sql").read_text()
+    pattern = re.compile(
+        r"\(\s*'([A-Z_]+)',\s*'[^']*',\s*(?:'[^']*'|NULL),\s*(?:'[^']*'|NULL),\s*([\d.]+|NULL),\s*(?:'[^']*'|NULL),\s*'((?:[^']|'')*)'",
+        re.S,
+    )
+    rows = [
+        {"rule_id": m[1], "threshold": float(m[2]) if m[2] != "NULL" else None, "source": m[3]}
+        for m in pattern.finditer(text)
+    ]
+    return RuleEngine(rows)
 
 
 @pytest.fixture
-def db(schema):
-    from app.db import connect
+def configured(monkeypatch):
+    for key in ("JWT_SECRET", "PHI_KEY", "HMAC_KEY"):
+        monkeypatch.setenv(key, "test-only-" + key + "x" * 40)
+    monkeypatch.setenv(
+        "DATABASE_URL", os.getenv("TEST_DATABASE_URL", "postgresql://localhost/nest_test")
+    )
+    from app.config import settings
 
-    with connect(schema) as conn:
-        yield conn
-
-
-@pytest.fixture(autouse=True)
-def clean(schema):
-    from app.db import connect
-
-    with connect(schema) as conn:
-        conn.execute(
-            """
-            TRUNCATE checkout_ledger, cart_lines, sessions, lots, bins, products,
-                     enrollment_tokens, conditions, client_allergens, clients, users
-            RESTART IDENTITY CASCADE
-            """
-        )
-        conn.execute(
-            """
-            UPDATE warehouse_limits
-            SET max_floor = 25, max_queue = 15, lease_minutes = 30
-            WHERE id = 1
-            """
-        )
+    settings.cache_clear()
+    yield
+    settings.cache_clear()
 
 
-@pytest.fixture(scope="session")
-def rules(schema):
-    from app.db import connect
-    from app.rules import load_rules
+@pytest.fixture
+def api(configured):
+    url = os.getenv("TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("set TEST_DATABASE_URL to a dedicated PostgreSQL database ending in _test")
+    from urllib.parse import urlparse
 
-    with connect(schema) as conn:
-        return load_rules(conn)
-
-
-@pytest.fixture(scope="session")
-def client(schema):
+    if not urlparse(url).path.endswith("_test"):
+        pytest.fail("test database name must end in _test; this fixture resets its public schema")
+    import psycopg
     from fastapi.testclient import TestClient
+    from psycopg.rows import dict_row
 
-    from app.main import app
+    from app.main import create_app
+    from seed.load import initialize, seed
 
-    with TestClient(app) as test_client:
-        yield test_client
+    with psycopg.connect(url, row_factory=dict_row) as conn:
+        conn.execute("DROP SCHEMA public CASCADE")
+        conn.execute("CREATE SCHEMA public")
+        initialize(conn)
+        cards = seed(conn)
+    with TestClient(create_app(), raise_server_exceptions=False) as client:
+        client.cards = {c["email"].split("@")[0]: c["token"] for c in cards}
+        yield client
+
+
+@pytest.fixture
+def db():
+    url = os.getenv("TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("PostgreSQL integration database not configured")
+    import psycopg
+    from psycopg.rows import dict_row
+
+    with psycopg.connect(url, row_factory=dict_row, autocommit=True) as conn:
+        yield conn

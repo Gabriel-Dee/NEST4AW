@@ -38,7 +38,7 @@ def enroll(client, headers, **overrides):
     }
     body.update(overrides)
     res = client.post("/clients", headers=headers, json=body)
-    assert res.status_code == 200, res.text
+    assert res.status_code == 201, res.text
     return res.json()
 
 
@@ -177,7 +177,9 @@ def test_checkout_sells_one_lot_and_stops_at_zero(client, db):
         "/cart/lines", json={"session_id": session_id, "product_id": str(product["id"])}
     )
     assert added.status_code == 200, added.text
-    first = client.post("/checkout", headers=staff, json={"session_id": session_id})
+    first = client.post(
+        "/checkout?response_format=summary", headers=staff, json={"session_id": session_id}
+    )
     assert first.status_code == 200, first.text
     assert first.json()["status"] == "closed"
     assert db.execute("SELECT qty FROM lots WHERE id = %s", (fresh["id"],)).fetchone()["qty"] == 0

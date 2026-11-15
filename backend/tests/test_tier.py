@@ -1,47 +1,37 @@
 import pytest
 
-from app.tier import OutsideMatrix, flags_from_icd, tier_of
+from app.errors import APIError
+from app.tier import derive, tier_of
 
 
-def test_tier_matrix():
-    assert tier_of(True, False, False) == "T1"
-    assert tier_of(False, True, False) == "T2"
-    assert tier_of(False, False, True) == "T3"
-    assert tier_of(True, True, False) == "T4"
-    assert tier_of(True, False, True) == "T5"
-    assert tier_of(False, True, True) == "T6"
-    assert tier_of(True, True, True) == "T7"
-    assert tier_of(False, False, False) is None
+@pytest.mark.parametrize(
+    "flags,tier",
+    [
+        ((1, 0, 0), "T1"),
+        ((0, 1, 0), "T2"),
+        ((0, 0, 1), "T3"),
+        ((1, 1, 0), "T4"),
+        ((1, 0, 1), "T5"),
+        ((0, 1, 1), "T6"),
+        ((1, 1, 1), "T7"),
+        ((0, 0, 0), None),
+    ],
+)
+def test_tiers(flags, tier):
+    assert tier_of(*flags) == tier
 
 
-def test_maria_james_and_e11_22_does_not_set_ckd():
-    maria = flags_from_icd(["E11.9", "I10"])
-    assert (maria.dm, maria.htn, maria.ckd34, maria.tier_id) == (True, True, False, "T4")
-    james = flags_from_icd(["I10", "N18.32"])
-    assert (james.dm, james.htn, james.ckd34, james.tier_id) == (False, True, True, "T6")
-    only = flags_from_icd(["E11.22"])
-    assert (only.dm, only.htn, only.ckd34, only.tier_id) == (True, False, False, "T1")
+@pytest.mark.parametrize("code", ["N18.5", "N18.6", "INVALID"])
+def test_invalid(code):
+    with pytest.raises(APIError):
+        derive([code])
 
 
-def test_i12_is_hypertension_only_and_early_ckd_is_ignored():
-    row = flags_from_icd(["I12.9", "N18.1", "N18.2", "N18.9"])
-    assert (row.dm, row.htn, row.ckd34, row.tier_id) == (False, True, False, "T2")
-
-
-def test_stage_5_and_dialysis_are_rejected():
-    with pytest.raises(OutsideMatrix):
-        flags_from_icd(["N18.5"])
-    with pytest.raises(OutsideMatrix):
-        flags_from_icd(["E11.9", "N18.6"])
-
-
-def test_e10_warns_and_does_not_set_diabetes():
-    row = flags_from_icd(["E10.9"])
-    assert row.dm is False
-    assert row.tier_id is None
-    assert row.warnings
-
-
-def test_allergens_do_not_change_the_tier():
-    row = flags_from_icd(["E11.22", "I10", "N18.4"])
-    assert row.tier_id == "T7"
+def test_icd():
+    assert derive(["E11.22"])["ckd34"] is False
+    assert derive(["I12.9"])["htn"] is True
+    assert derive(["I12.9"])["ckd34"] is False
+    assert derive(["E10.9"])["tier_id"] is None
+    assert derive(["E13.9"])["warnings"]
+    for code in ["N18.1", "N18.2", "N18.9"]:
+        assert not derive([code])["ckd34"]

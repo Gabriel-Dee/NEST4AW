@@ -1,177 +1,133 @@
+"""Apply the authoritative schema once; repeatable demo seed without secret rotation."""
+
+import argparse
 import json
 import os
-from datetime import date, timedelta
+from pathlib import Path
 
-from app.auth import hasher
-from app.db import DOCS, apply_schema, connect, env, load_dotenv
-from app.phi import issue_card
-from app.tier import flags_from_icd
+import psycopg
+from psycopg import sql
+from psycopg.rows import dict_row
 
-BINS = {
-    "banana": ("A", "1", "A1"),
-    "orange_juice": ("A", "1", "A2"),
-    "progresso": ("B", "2", "B1"),
-    "mcdougall": ("B", "2", "B2"),
-    "sugar_free_cookies": ("C", "1", "C1"),
-    "peanut_bar": ("C", "1", "C2"),
-}
-PHONES = {
-    "maria": "555-0101",
-    "james": "555-0102",
-    "asha": "555-0103",
-    "luis": "555-0104",
-    "helen": "555-0105",
-}
-STAFF = (
-    ("admin@demo.local", "admin"),
-    ("doctor@demo.local", "doctor"),
-    ("staff@demo.local", "warehouse_staff"),
-    ("partner@demo.local", "community_partner"),
-)
+from app.auth import password_hash
+from app.clients import enroll
+from app.config import settings
+from app.schemas import ClientCreate
+from seed.recipes import seed_library
+from seed.stores import seed_stores
+
+ROOT = Path(__file__).resolve().parents[2]
 
 
-def insert_user(conn, email, role, password):
-    return conn.execute(
-        """
-        INSERT INTO users (email, password_hash, role)
-        VALUES (%s, %s, %s)
-        RETURNING id
-        """,
-        (email.lower(), hasher().hash(password), role),
+def initialize(conn):
+    conn.execute("SELECT pg_advisory_xact_lock(861105)")
+    if conn.execute("SELECT to_regclass('public.users') AS name").fetchone()["name"] is None:
+        conn.execute((ROOT / "docs/schema.sql").read_text())
+        conn.execute((ROOT / "docs/seed_reference.sql").read_text())
+    else:
+        # Never silently reapply a partial schema.
+        from app.rules import RuleEngine
+
+        RuleEngine(conn.execute("SELECT * FROM rules").fetchall())
+
+    for migration in sorted((ROOT / "backend/migrations").glob("*.sql")):
+        conn.execute(migration.read_text())
+    seed_library(conn)
+    seed_stores(conn)
+
+
+def insert_product(conn, food):
+    values = {k: v for k, v in food.items() if k != "key"}
+    query = sql.SQL(
+        "INSERT INTO products ({}) VALUES ({}) ON CONFLICT DO NOTHING RETURNING id"
+    ).format(
+        sql.SQL(",").join(map(sql.Identifier, values)),
+        sql.SQL(",").join(sql.Placeholder() for _ in values),
+    )
+    row = conn.execute(query, list(values.values())).fetchone()
+    if row:
+        return row["id"]
+    row = conn.execute(
+        "SELECT id FROM products WHERE barcode=%s OR internal_code=%s",
+        (food.get("barcode"), food.get("internal_code")),
+    ).fetchone()
+    return row["id"] if row else None
+
+
+def stock_demo(conn, pid, index, produce=False):
+    if conn.execute("SELECT id FROM bins WHERE product_id=%s", (pid,)).fetchone():
+        return
+    bid = conn.execute(
+        "INSERT INTO bins(aisle,shelf,bin_code,product_id,min_qty) VALUES(%s,'1',%s,%s,2) RETURNING id",
+        ("A" if produce else "B", f"DEMO-{index:03}", pid),
     ).fetchone()["id"]
+    for arrival, expiry, qty in ((-4, -1, 1), (-3, 3, 1), (-1, 30, 1)):
+        conn.execute(
+            """INSERT INTO lots(product_id,bin_id,grant_id,arrived_on,expires_on,qty)
+            VALUES(%s,%s,%s,CURRENT_DATE+%s,CURRENT_DATE+%s,%s)""",
+            (pid, bid, "grant-a" if produce else "grant-b", arrival, expiry, qty),
+        )
+
+
+def seed(conn):
+    golden = json.loads((ROOT / "docs/golden.json").read_text())
+    password = os.getenv("SEED_PASSWORD", "nest-local-demo")
+    for name, role in (
+        ("admin", "admin"),
+        ("doctor", "doctor"),
+        ("staff", "warehouse_staff"),
+        ("partner", "community_partner"),
+    ):
+        conn.execute(
+            "INSERT INTO users(email,password_hash,role) VALUES(%s,%s,%s) ON CONFLICT(email) DO NOTHING",
+            (name + "@demo.local", password_hash.hash(password), role),
+        )
+    cards = []
+    for person in golden["personas"]:
+        if conn.execute("SELECT id FROM users WHERE email=%s", (person["email"],)).fetchone():
+            continue
+        body = ClientCreate(
+            **{k: v for k, v in person.items() if k not in ("key", "tier")}, password=password
+        )
+        result = enroll(conn, body)
+        cards.append({"email": person["email"], "token": result["token"]})
+    for i, food in enumerate(golden["foods"]):
+        pid = insert_product(conn, food)
+        stock_demo(conn, pid, i, food["category"] == "produce")
+    snapshot = ROOT / "backend/seed/data/off_products.json"
+    if snapshot.exists():
+        for i, food in enumerate(json.loads(snapshot.read_text())["products"], start=1000):
+            pid = insert_product(conn, food)
+            if pid:
+                stock_demo(conn, pid, i)
+    return cards
 
 
 def load_products(conn, foods):
-    today = date.today()
-    for food in foods:
-        row = conn.execute(
-            """
-            INSERT INTO products (
-              barcode, internal_code, name, serving_text, serving_g,
-              sodium_mg, potassium_mg, phosphorus_mg, added_sugar_g, carb_g, fiber_g, gi,
-              ingredients, category, is_drink, is_juice, allergen_tags,
-              fdc_id, net_weight_g, source, source_url, added_sugar_assumed
-            ) VALUES (
-              %s, %s, %s, %s, %s,
-              %s, %s, %s, %s, %s, %s, %s,
-              %s, %s, %s, %s, %s,
-              %s, %s, %s, %s, %s
-            )
-            RETURNING id
-            """,
-            (
-                food["barcode"],
-                food["internal_code"],
-                food["name"],
-                food["serving_text"],
-                food["serving_g"],
-                food["sodium_mg"],
-                food["potassium_mg"],
-                food["phosphorus_mg"],
-                food["added_sugar_g"],
-                food["carb_g"],
-                food["fiber_g"],
-                food["gi"],
-                food["ingredients"],
-                food["category"],
-                food["is_drink"],
-                food["is_juice"],
-                food["allergen_tags"],
-                food["fdc_id"],
-                food["serving_g"],
-                food["source"],
-                food["source_url"],
-                food["added_sugar_assumed"],
-            ),
-        ).fetchone()
-        aisle, shelf, code = BINS[food["key"]]
-        bin_row = conn.execute(
-            """
-            INSERT INTO bins (aisle, shelf, bin_code, product_id)
-            VALUES (%s, %s, %s, %s) RETURNING id
-            """,
-            (aisle, shelf, code, row["id"]),
-        ).fetchone()
-        grant = "grant-a" if food["category"] == "produce" else "grant-b"
-        for arrived, expires, qty in (
-            (today - timedelta(days=40), today - timedelta(days=1), 5),
-            (today - timedelta(days=10), today + timedelta(days=3), 1),
-            (today - timedelta(days=1), today + timedelta(days=60), 1),
-        ):
-            conn.execute(
-                """
-                INSERT INTO lots (product_id, bin_id, grant_id, arrived_on, expires_on, qty)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                """,
-                (row["id"], bin_row["id"], grant, arrived, expires, qty),
-            )
-
-
-def insert_client(conn, persona, password, phone):
-    flags = flags_from_icd(persona["icd10"])
-    user_id = insert_user(conn, persona["email"], "client", password)
-    client = conn.execute(
-        """
-        INSERT INTO clients (
-          user_id, legal_name_enc, phone_enc, name_hmac,
-          dm, htn, ckd34, k_limit_ordered, household_size, tier_id
-        ) VALUES (
-          %s,
-          pgp_sym_encrypt(%s, %s),
-          pgp_sym_encrypt(%s, %s),
-          hmac(convert_to(lower(btrim(%s)), 'UTF8'), convert_to(%s, 'UTF8'), 'sha256'),
-          %s, %s, %s, %s, %s, %s
-        ) RETURNING id
-        """,
-        (
-            user_id,
-            persona["legal_name"],
-            env("PHI_KEY"),
-            phone,
-            env("PHI_KEY"),
-            persona["legal_name"],
-            env("HMAC_KEY"),
-            flags.dm,
-            flags.htn,
-            flags.ckd34,
-            persona["k_limit_ordered"],
-            persona["household_size"],
-            flags.tier_id,
-        ),
-    ).fetchone()
-    for code in persona["icd10"]:
-        conn.execute(
-            "INSERT INTO conditions (client_id, icd10) VALUES (%s, %s)",
-            (client["id"], code),
-        )
-    for code in persona["allergens"]:
-        conn.execute(
-            "INSERT INTO client_allergens (client_id, code) VALUES (%s, %s)",
-            (client["id"], code),
-        )
-    return persona["email"], issue_card(conn, client["id"])
+    """Compatibility entry point for the incoming seed/test helpers; never clears existing data."""
+    for index, food in enumerate(foods):
+        pid = insert_product(conn, food)
+        if pid:
+            stock_demo(conn, pid, index, food.get("category") == "produce")
 
 
 def main():
-    load_dotenv()
-    password = os.environ.get("SEED_PASSWORD", "nest-local-demo")
-    golden = json.loads((DOCS / "golden.json").read_text())
-    with connect() as conn:
-        conn.execute("DROP SCHEMA public CASCADE")
-        conn.execute("CREATE SCHEMA public")
-        apply_schema(conn)
-        for email, role in STAFF:
-            insert_user(conn, email, role, password)
-        cards = [
-            insert_client(conn, persona, password, PHONES[persona["key"]])
-            for persona in golden["personas"]
-        ]
-        load_products(conn, golden["foods"])
-    print(f"password={password}")
-    for email, token in cards:
-        print(f"card {email} {token}")
-    if not os.environ.get("FDC_API_KEY", "").strip():
-        print("catalog pull skipped, FDC_API_KEY unset")
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--enrich",
+        action="store_true",
+        help="Import actual FDC products toward 100; requires FDC_API_KEY",
+    )
+    args = parser.parse_args()
+    with psycopg.connect(settings().database_url, row_factory=dict_row) as conn:
+        initialize(conn)
+        cards = seed(conn)
+    for card in cards:
+        print(json.dumps(card))  # Demo-only credentials, once after commit.
+    if args.enrich:
+        from seed.enrich import enrich
+
+        enrich()
 
 
 if __name__ == "__main__":

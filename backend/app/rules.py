@@ -1,45 +1,118 @@
+"""Deterministic clinical voting. No model, network, or duplicate thresholds."""
+
 import re
-from dataclasses import dataclass
-from decimal import Decimal
+from dataclasses import asdict, dataclass
 
-REQUIRED_RULE_IDS = (
-    "NA_G",
-    "NA_R",
-    "NA_Y",
-    "K_DEFAULT",
-    "K_ORDER",
-    "K_SALT",
-    "K_RANK",
-    "P_ADD",
-    "P_MISS",
-    "SUG_DRINK",
-    "SUG_G",
-    "SUG_Y",
-    "CARB",
-    "FIBER_RANK",
-    "GI_Y",
-    "GI_MISS",
-    "ALG",
+REQUIRED = set(
+    "NA_G NA_R NA_Y K_DEFAULT K_ORDER K_SALT K_RANK P_ADD P_MISS SUG_DRINK SUG_G SUG_Y CARB FIBER_RANK GI_Y GI_MISS ALG".split()
 )
-
-_WORDS = {
-    "milk": re.compile(r"milk", re.I),
-    "eggs": re.compile(r"\beggs?\b", re.I),
-    "fish": re.compile(r"\bfish\b", re.I),
-    "crustacean_shellfish": re.compile(
-        r"crustacean|shellfish|shrimp|crab|lobster|crawfish|crayfish", re.I
-    ),
-    "tree_nuts": re.compile(
-        r"tree nuts?|almonds?|walnuts?|pecans?|cashews?|pistachios?|hazelnuts?|macadamias?|brazil nuts?",
-        re.I,
-    ),
-    "peanuts": re.compile(r"peanuts?", re.I),
-    "wheat": re.compile(r"\bwheat\b", re.I),
-    "soybeans": re.compile(r"soy", re.I),
-    "sesame": re.compile(r"sesame", re.I),
+ALLERGEN_WORDS = {
+    "milk": r"milk|buttermilk|cream|butter|whey|casein|cheese|yogurt",
+    "eggs": r"egg|eggs|albumen",
+    "fish": r"fish|salmon|tuna|cod|anchovy|anchovies",
+    "crustacean_shellfish": r"crustacean|shellfish|shrimp|prawn|crab|lobster|crawfish|crayfish",
+    "tree_nuts": r"almond|almonds|walnut|walnuts|cashew|cashews|pecan|pecans|pistachios?|hazelnuts?|macadamias?|brazil nuts?|tree nuts?",
+    "peanuts": r"peanut|peanuts",
+    "wheat": r"wheat|semolina|spelt|bulgur",
+    "soybeans": r"soy|soya|soybean|soybeans|tofu|edamame",
+    "sesame": r"sesame|tahini",
 }
-_PHOSPHATE = re.compile(r"phosphate|phosphoric|pyrophosphate", re.I)
-_K_SALT = re.compile(r"potassium chloride", re.I)
+
+
+class RuleEngine:
+    def __init__(self, rows):
+        self.rules = {r["rule_id"]: dict(r) for r in rows}
+        missing = REQUIRED - self.rules.keys()
+        if missing:
+            raise RuntimeError(f"missing clinical rules: {sorted(missing)}")
+        for key in ("NA_G", "NA_R", "K_ORDER", "SUG_G", "SUG_Y", "FIBER_RANK", "GI_Y"):
+            if self.rules[key]["threshold"] is None:
+                raise RuntimeError(f"missing threshold: {key}")
+
+    def evaluate(self, person, product):
+        if product is None:
+            return {"verdict": "unknown", "reasons": [], "product": None}
+        votes, reasons, voted = [], [], {}
+
+        def vote(color, rule=None):
+            if rule:
+                color = self.rules[rule].get("color") or color
+            votes.append(color)
+            if rule:
+                row = self.rules[rule]
+                reasons.append({"rule_id": rule, "source": row["source"]})
+                voted[rule] = color
+
+        def threshold(key):
+            return self.rules[key]["threshold"]
+
+        ingredients = (product.get("ingredients") or "").strip().lower()
+        tags = set(product.get("allergen_tags") or [])
+        allergens = set(person.get("allergens") or [])
+        if allergens and not tags and not ingredients:
+            vote("unknown")
+        if allergens & tags or any(
+            re.search(r"\b(?:" + ALLERGEN_WORDS[a] + r")\b", ingredients) for a in allergens
+        ):
+            vote("red", "ALG")
+        if any(person.get(k) for k in ("dm", "htn", "ckd34")):
+            sodium = product.get("sodium_mg")
+            if sodium is None:
+                vote("unknown")
+            elif sodium <= threshold("NA_G"):
+                vote("green", "NA_G")
+            elif sodium >= threshold("NA_R"):
+                vote("red", "NA_R")
+            else:
+                vote("yellow", "NA_Y")
+        if person.get("ckd34"):
+            if "potassium chloride" in ingredients:
+                vote("red", "K_SALT")
+            if any(s in ingredients for s in ("phosphate", "phosphoric", "pyrophosphate")):
+                vote("yellow", "P_ADD")
+            if product.get("phosphorus_mg") is None:
+                vote("yellow", "P_MISS")
+        if person.get("k_limit_ordered"):
+            potassium = product.get("potassium_mg")
+            if potassium is None:
+                vote("unknown")
+            elif potassium >= threshold("K_ORDER"):
+                vote("red", "K_ORDER")
+        if person.get("dm"):
+            sugar = product.get("added_sugar_g")
+            # ADA rec 5.25: replace sugar-sweetened drinks and juice with water. Water itself is
+            # not red. For drinks use the larger of added and total sugar, because some OFF
+            # records list 0 g added sugar on a full-sugar soda.
+            drink_sugar = max(
+                (v for v in (sugar, product.get("sugar_g")) if v is not None), default=None
+            )
+            if product.get("is_juice") or (
+                product.get("is_drink")
+                and drink_sugar is not None
+                and drink_sugar >= threshold("SUG_G")
+            ):
+                vote("red", "SUG_DRINK")
+            elif sugar is None:
+                vote("unknown")
+            elif sugar < threshold("SUG_G"):
+                vote("green", "SUG_G")
+            elif sugar >= threshold("SUG_Y"):
+                vote("yellow", "SUG_Y")
+            else:
+                vote("unknown")
+            if product.get("gi") is not None and product["gi"] >= threshold("GI_Y"):
+                vote("yellow", "GI_Y")
+        verdict = next((c for c in ("red", "yellow", "unknown") if c in votes), "green")
+        # Lead with a rule that decided the verdict, so the shown reason matches the color.
+        reasons.sort(key=lambda r: voted[r["rule_id"]] != verdict)
+        return {
+            "verdict": verdict,
+            "reasons": reasons,
+            "product": product,
+            "fiber_rank_bonus": any(person.get(k) for k in ("dm", "htn", "ckd34"))
+            and product.get("fiber_g") is not None
+            and product["fiber_g"] >= threshold("FIBER_RANK"),
+        }
 
 
 @dataclass
@@ -57,6 +130,7 @@ class Item:
     potassium_mg: object = None
     phosphorus_mg: object = None
     added_sugar_g: object = None
+    sugar_g: object = None
     carb_g: object = None
     fiber_g: object = None
     gi: object = None
@@ -80,120 +154,24 @@ class Verdict:
     fiber_rank_bonus: bool
 
 
-def load_rules(conn) -> dict:
-    rows = conn.execute("SELECT * FROM rules").fetchall()
-    return {row["rule_id"]: row for row in rows}
+REQUIRED_RULE_IDS = tuple(sorted(REQUIRED))
 
 
-def missing_rule_ids(rules: dict) -> list[str]:
-    return [rule_id for rule_id in REQUIRED_RULE_IDS if rule_id not in rules]
+def load_rules(conn):
+    return {row["rule_id"]: row for row in conn.execute("SELECT * FROM rules")}
 
 
-def _dec(value):
-    if value is None:
-        return None
-    if isinstance(value, Decimal):
-        return value
-    return Decimal(str(value))
-
-
-def _vote(rule: dict, color: str | None = None) -> Vote:
-    chosen = rule["color"] if color is None else color
-    return Vote(rule["rule_id"], chosen, rule["source"])
-
-
-def _tags_hit(person: Person, item: Item) -> bool:
-    tags = {tag.lower() for tag in (item.allergen_tags or [])}
-    return any(code.lower() in tags for code in person.allergens)
-
-
-def _text_hit(person: Person, item: Item) -> bool:
-    text = item.ingredients or ""
-    if not text:
-        return False
-    for code in person.allergens:
-        pattern = _WORDS.get(code.lower())
-        if pattern and pattern.search(text):
-            return True
-    return False
-
-
-def _condition(person: Person) -> bool:
-    return bool(person.dm or person.htn or person.ckd34)
+def missing_rule_ids(rules):
+    return sorted(REQUIRED - rules.keys())
 
 
 def evaluate(person: Person, item: Item | None, rules: dict) -> Verdict:
+    """Upstream dataclass interface, backed by the same clinical rules as every route."""
     if item is None:
         return Verdict("unknown", [], False)
-
-    votes: list[Vote] = []
-    # ponytail: empty tag list means no allergen tags, so the golden banana stays green
-    # for Asha and Helen. Vote unknown only when the tag list itself is missing.
-    # Upgrade path: if golden.json marks that banana unknown, treat [] as missing too.
-    if person.allergens and item.allergen_tags is None and not (item.ingredients or "").strip():
-        votes.append(_vote(rules["ALG"], "unknown"))
-    elif person.allergens and (_tags_hit(person, item) or _text_hit(person, item)):
-        votes.append(_vote(rules["ALG"]))
-
-    if _condition(person):
-        sodium = _dec(item.sodium_mg)
-        if sodium is None:
-            votes.append(_vote(rules["NA_G"], "unknown"))
-        elif sodium <= _dec(rules["NA_G"]["threshold"]):
-            votes.append(_vote(rules["NA_G"]))
-        elif sodium >= _dec(rules["NA_R"]["threshold"]):
-            votes.append(_vote(rules["NA_R"]))
-        else:
-            votes.append(_vote(rules["NA_Y"]))
-
-    if person.ckd34 and item.ingredients and _K_SALT.search(item.ingredients):
-        votes.append(_vote(rules["K_SALT"]))
-
-    if person.k_limit_ordered:
-        potassium = _dec(item.potassium_mg)
-        if potassium is None:
-            votes.append(_vote(rules["K_ORDER"], "unknown"))
-        elif potassium >= _dec(rules["K_ORDER"]["threshold"]):
-            votes.append(_vote(rules["K_ORDER"]))
-
-    if person.ckd34 and item.ingredients and _PHOSPHATE.search(item.ingredients):
-        votes.append(_vote(rules["P_ADD"]))
-    if person.ckd34 and item.phosphorus_mg is None:
-        votes.append(_vote(rules["P_MISS"]))
-
-    if person.dm and (item.is_drink or item.is_juice):
-        votes.append(_vote(rules["SUG_DRINK"]))
-    elif person.dm:
-        sugar = _dec(item.added_sugar_g)
-        if sugar is None:
-            votes.append(_vote(rules["SUG_G"], "unknown"))
-        elif sugar < _dec(rules["SUG_G"]["threshold"]):
-            votes.append(_vote(rules["SUG_G"]))
-        elif sugar >= _dec(rules["SUG_Y"]["threshold"]):
-            votes.append(_vote(rules["SUG_Y"]))
-
-    if person.dm:
-        gi = _dec(item.gi)
-        if gi is not None and gi >= _dec(rules["GI_Y"]["threshold"]):
-            votes.append(_vote(rules["GI_Y"]))
-
-    bonus = False
-    if _condition(person):
-        fiber = _dec(item.fiber_g)
-        threshold = _dec(rules["FIBER_RANK"]["threshold"])
-        if fiber is not None and threshold is not None and fiber >= threshold:
-            bonus = True
-
-    # Loaded so startup fails if a row disappears. These four do not vote.
-    _ = (rules["K_DEFAULT"], rules["K_RANK"], rules["CARB"], rules["GI_MISS"])
-
-    colors = [vote.color for vote in votes]
-    if "red" in colors:
-        verdict = "red"
-    elif "yellow" in colors:
-        verdict = "yellow"
-    elif "unknown" in colors:
-        verdict = "unknown"
-    else:
-        verdict = "green"
-    return Verdict(verdict, votes, bonus)
+    result = RuleEngine(rules.values()).evaluate(asdict(person), asdict(item))
+    votes = [
+        Vote(r["rule_id"], rules[r["rule_id"]].get("color") or result["verdict"], r["source"])
+        for r in result["reasons"]
+    ]
+    return Verdict(result["verdict"], votes, result["fiber_rank_bonus"])

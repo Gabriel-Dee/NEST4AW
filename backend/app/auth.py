@@ -1,83 +1,85 @@
+import hashlib
 from datetime import datetime, timedelta, timezone
+from uuid import UUID
 
 import jwt
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pwdlib import PasswordHash
 
-from app.db import env, get_conn
+from app.config import settings
+from app.db import connection
+from app.errors import APIError
 
-TOKEN_SECONDS = 8 * 60 * 60
-_hasher: PasswordHash | None = None
-_dummy: str | None = None
-_bearer = HTTPBearer(auto_error=False)
-
-
-class APIError(Exception):
-    def __init__(self, status: int, error: str, message: str):
-        self.status = status
-        self.error = error
-        self.message = message
-        super().__init__(message)
+password_hash = PasswordHash.recommended()
+bearer = HTTPBearer(auto_error=False)
+DUMMY_HASH = password_hash.hash("timing-only-not-an-account")
+ROLES = ("doctor", "client", "warehouse_staff", "admin", "community_partner")
 
 
-def hasher() -> PasswordHash:
-    global _hasher
-    if _hasher is None:
-        _hasher = PasswordHash.recommended()
-    return _hasher
+def issue(user):
+    now = datetime.now(timezone.utc)
+    token = jwt.encode(
+        {
+            "sub": str(user["id"]),
+            "role": user["role"],
+            "email": user["email"],
+            "iat": now,
+            "exp": now + timedelta(hours=8),
+        },
+        settings().jwt_secret,
+        algorithm="HS256",
+    )
+    issued = dict(access_token=token, token_type="bearer", role=user["role"], expires_in=28800)
+    issued["token"] = token
+    return issued
 
 
-def dummy_hash() -> str:
-    global _dummy
-    if _dummy is None:
-        _dummy = hasher().hash("not-a-real-password")
-    return _dummy
-
-
-def password_ok(password: str, stored: str) -> bool:
-    try:
-        return bool(hasher().verify(password, stored))
-    except Exception:
-        return False
-
-
-def make_token(user_id, role: str, email: str) -> str:
-    payload = {
-        "sub": str(user_id),
-        "role": role,
-        "email": email,
-        "exp": datetime.now(timezone.utc) + timedelta(seconds=TOKEN_SECONDS),
-    }
-    return jwt.encode(payload, env("JWT_SECRET"), algorithm="HS256")
-
-
-def current_user(
-    creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
-    conn=Depends(get_conn),
+def authenticated(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    conn=Depends(connection, scope="function"),
 ):
-    if creds is None or not creds.credentials:
-        raise APIError(401, "unauthorized", "not signed in")
     try:
-        payload = jwt.decode(creds.credentials, env("JWT_SECRET"), algorithms=["HS256"])
-    except jwt.PyJWTError:
-        raise APIError(401, "unauthorized", "not signed in")
-    sub = payload.get("sub")
-    if not sub:
-        raise APIError(401, "unauthorized", "not signed in")
-    row = conn.execute(
-        "SELECT id, email, role, disabled FROM users WHERE id = %s",
-        (sub,),
-    ).fetchone()
-    if row is None or row["disabled"]:
-        raise APIError(401, "unauthorized", "not signed in")
-    return row
+        if credentials is None:
+            raise ValueError()
+        claims = jwt.decode(
+            credentials.credentials,
+            settings().jwt_secret,
+            algorithms=["HS256"],
+            options={"require": ["sub", "role", "email", "exp", "iat"]},
+        )
+        uid = UUID(claims["sub"])
+        user = conn.execute(
+            "SELECT id,email,role,disabled FROM users WHERE id=%s", (uid,)
+        ).fetchone()
+        if (
+            not user
+            or user["disabled"]
+            or user["role"] != claims["role"]
+            or user["email"] != claims["email"]
+        ):
+            raise ValueError()
+        digest = hashlib.sha256(credentials.credentials.encode()).digest()
+        if conn.execute(
+            "SELECT 1 FROM revoked_tokens WHERE token_hash=%s AND expires_at>now()", (digest,)
+        ).fetchone():
+            raise ValueError()
+        return user
+    except (jwt.PyJWTError, ValueError, TypeError):
+        raise APIError(401, "unauthorized", "sign in required") from None
 
 
-def require_role(*roles: str):
-    def dep(user=Depends(current_user)):
+def require_role(*roles):
+    def authorize(user=Depends(authenticated)):
         if user["role"] not in roles:
-            raise APIError(403, "forbidden", "wrong role")
+            raise APIError(403, "forbidden", "insufficient permissions")
         return user
 
-    return dep
+    return authorize
+
+
+TOKEN_SECONDS = 8 * 60 * 60
+
+
+def hasher():
+    return password_hash
