@@ -1,14 +1,17 @@
 # Production overlay. Used by deploy/deploy.sh together with backend/compose.yaml:
 #   docker compose -f backend/compose.yaml -f deploy/compose.prod.yaml --profile ai up -d
 # Relative paths resolve from backend/ (the first file's folder).
+# The host's nginx terminates HTTPS and proxies to the loopback ports below, so this stack never
+# takes ports 80/443 or 8000 from other sites on the server.
 services:
   postgres:
     restart: unless-stopped
   api:
     restart: unless-stopped
-    # Caddy owns the public ports; any host port edit in backend/compose.yaml is replaced here.
+    # Replaces any host port in backend/compose.yaml. 8010 stays public for the phone's HTTP fallback.
     ports: !override
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8410:8000"
+      - "8010:8000"
   ollama:
     restart: unless-stopped
   ocr:
@@ -16,23 +19,7 @@ services:
   frontend:
     build: ../frontend
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:3410:3000"
     depends_on:
       - api
-  caddy:
-    image: caddy:2
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "8010:8010"
-    environment:
-      APP_DOMAIN: ${APP_DOMAIN:?run deploy/deploy.sh}
-      API_DOMAIN: ${API_DOMAIN:?run deploy/deploy.sh}
-      PUBLIC_IP: ${PUBLIC_IP:?run deploy/deploy.sh}
-    volumes:
-      - ../deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-volumes:
-  caddy-data:
-  caddy-config:

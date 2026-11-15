@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One-command server deploy for NEST4AW: backend (API, Postgres, OCR, local LLM) + staff web app,
-# behind Caddy with automatic HTTPS. Run from the repo root, as root (or with sudo):
+# behind the host's nginx with Let's Encrypt (certbot). Other nginx sites are left untouched.
+# Run from the repo root, as root (or with sudo):
 #   sudo bash deploy/deploy.sh
 # Safe to re-run: secrets in backend/.env are kept, data volumes are kept, seeds are idempotent.
 #
@@ -32,12 +33,15 @@ fi
 step "Checking tools"
 [ "$(uname -s)" = Linux ] || die "this script is for a Linux server"
 missing=()
-for tool in curl git openssl; do command -v "$tool" >/dev/null || missing+=("$tool"); done
+for tool in curl git openssl nginx certbot; do command -v "$tool" >/dev/null || missing+=("$tool"); done
 if [ ${#missing[@]} -gt 0 ]; then
   command -v apt-get >/dev/null || die "install these first: ${missing[*]}"
-  echo "Installing ${missing[*]}"
-  apt-get update -qq && apt-get install -y -qq "${missing[@]}" ca-certificates
+  pkgs=("${missing[@]/certbot/certbot python3-certbot-nginx}")
+  echo "Installing ${pkgs[*]}"
+  # shellcheck disable=SC2068 # word-split "certbot python3-certbot-nginx" on purpose
+  apt-get update -qq && apt-get install -y -qq ${pkgs[@]} ca-certificates
 fi
+systemctl enable --now nginx >/dev/null 2>&1 || true
 if ! command -v docker >/dev/null; then
   echo "Installing Docker (official get.docker.com script)"
   curl -fsSL https://get.docker.com | sh
@@ -105,10 +109,7 @@ done
 env_set OLLAMA_MODEL "$OLLAMA_MODEL"
 env_set LLM_TIMEOUT 120
 env_set OCR_TIMEOUT 60
-env_set APP_DOMAIN "$APP_DOMAIN"
-env_set API_DOMAIN "$API_DOMAIN"
-env_set PUBLIC_IP "$PUBLIC_IP"
-env_set CORS_ORIGINS "[\"https://$APP_DOMAIN\",\"http://$PUBLIC_IP\",\"http://localhost:5173\",\"http://localhost:8081\"]"
+env_set CORS_ORIGINS "[\"https://$APP_DOMAIN\",\"http://$APP_DOMAIN\",\"http://localhost:5173\",\"http://localhost:8081\"]"
 
 dc() { docker compose -p "$PROJECT" -f backend/compose.yaml -f deploy/compose.prod.yaml --profile ai "$@"; }
 
@@ -123,14 +124,13 @@ elif [ "$fresh_env" = 1 ] && docker volume inspect "${PROJECT}_postgres-data" >/
 fi
 
 # ---------------------------------------------------------------- 5. ports and firewall
-step "Freeing ports 80, 443, 8010"
-for port in 80 443 8010; do
-  docker ps --filter "publish=$port" --format '{{.ID}} {{.Names}} {{.Label "com.docker.compose.project"}}' |
-    while read -r id name project; do
-      if [ "$project" != "$PROJECT" ]; then echo "stopping old container $name (was using port $port)"; docker stop "$id" >/dev/null; fi
-    done
+step "Checking ports 8010, 8410, 3410 are free (or already ours)"
+# Never stops anything: other apps on this server keep running.
+for port in 8010 8410 3410; do
+  other=$(docker ps --filter "publish=$port" --format '{{.Names}} {{.Label "com.docker.compose.project"}}' | awk -v p="$PROJECT" '$2 != p {print $1}' | head -1)
+  [ -z "$other" ] || die "port $port is used by container '$other' from another project. Free it or change the ports in deploy/compose.prod.yaml."
   holder=$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -v docker-proxy | sed -n 's/.*users:(("\([^"]*\)".*/\1/p' | head -1)
-  [ -z "$holder" ] || die "port $port is used by '$holder' (not Docker). Stop it, e.g. systemctl disable --now $holder, then re-run."
+  [ -z "$holder" ] || die "port $port is used by '$holder'. Free it or change the ports in deploy/compose.prod.yaml."
 done
 if command -v ufw >/dev/null && ufw status | grep -q 'Status: active'; then
   ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null; ufw allow 8010/tcp >/dev/null
@@ -138,8 +138,8 @@ if command -v ufw >/dev/null && ufw status | grep -q 'Status: active'; then
 fi
 
 # ---------------------------------------------------------------- 6. backend up
-step "Building and starting backend, OCR, Ollama and Caddy (first run takes a while)"
-dc up -d --build --remove-orphans postgres seed api ollama ocr caddy
+step "Building and starting backend, OCR and Ollama (first run takes a while)"
+dc up -d --build --remove-orphans postgres seed api ollama ocr
 
 api_py() { dc exec -T api python -c "$1"; }
 api_healthy() { api_py "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)" 2>/dev/null; }
@@ -178,19 +178,57 @@ with psycopg.connect(settings().database_url) as conn:
 PY
 
 # ---------------------------------------------------------------- 9. HTTPS
-step "Waiting for HTTPS certificates (Let's Encrypt via Caddy)"
+step "Adding the nginx site for $APP_DOMAIN and $API_DOMAIN (other sites untouched)"
+SITE=/etc/nginx/sites-available/nest4aw.conf
+# Written once; certbot then adds the HTTPS lines to this same file, so re-runs keep them.
+if [ ! -f "$SITE" ] || ! grep -q "server_name $APP_DOMAIN;" "$SITE"; then
+  cat > "$SITE" <<EOF
+# NEST4AW, written by deploy/deploy.sh
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $APP_DOMAIN;
+    location / {
+        proxy_pass http://127.0.0.1:3410;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+    }
+}
+server {
+    listen 80;
+    listen [::]:80;
+    server_name $API_DOMAIN;
+    client_max_body_size 9m;
+    location / {
+        proxy_pass http://127.0.0.1:8410;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 180s;
+    }
+}
+EOF
+fi
+ln -sf "$SITE" /etc/nginx/sites-enabled/nest4aw.conf
+nginx -t || die "nginx config test failed; nothing was reloaded. Remove $SITE and re-run."
+systemctl reload nginx
+
+step "Getting HTTPS certificates (Let's Encrypt via certbot)"
 https_ok=0
-for _ in $(seq 1 30); do
-  if curl -fsS --max-time 5 "https://$API_DOMAIN/health" >/dev/null 2>&1; then https_ok=1; break; fi
-  echo -n "."; sleep 5
-done
-echo
+if certbot --nginx -d "$APP_DOMAIN" -d "$API_DOMAIN" --non-interactive --agree-tos \
+  --register-unsafely-without-email --redirect --keep-until-expiring; then
+  for _ in $(seq 1 12); do
+    if curl -fsS --max-time 5 "https://$API_DOMAIN/health" >/dev/null 2>&1; then https_ok=1; break; fi
+    sleep 5
+  done
+fi
 if [ "$https_ok" = 1 ]; then
   API_URL="https://$API_DOMAIN"; APP_URL="https://$APP_DOMAIN"
 else
-  warn "HTTPS not ready (DNS, a cloud firewall on 80/443, or certificate limits). Using plain HTTP for now."
+  warn "HTTPS not ready (a cloud firewall on 80/443, or certificate limits). Using plain HTTP for now."
   warn "Re-run this script later to switch the web app to HTTPS."
-  API_URL="http://$PUBLIC_IP:8010"; APP_URL="http://$PUBLIC_IP"
+  API_URL="http://$API_DOMAIN"; APP_URL="http://$APP_DOMAIN"
 fi
 
 # ---------------------------------------------------------------- 10. frontend
