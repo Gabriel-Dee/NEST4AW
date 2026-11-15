@@ -3,7 +3,7 @@ import * as Location from 'expo-location';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { Linking, Platform, StyleSheet, Switch, Text, View } from 'react-native';
-import MapView, { Circle, Marker } from 'react-native-maps';
+import MapView, { Circle, Marker } from '../../components/maps';
 import QRCode from 'react-native-qrcode-svg';
 
 import { ApiError, geofenceCheckIn, getCheckinQr, getStore, type StoreRow } from '../../../services/api';
