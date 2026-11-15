@@ -127,9 +127,9 @@ fi
 step "Checking ports 8010, 8410, 3410 are free (or already ours)"
 # Never stops anything: other apps on this server keep running.
 for port in 8010 8410 3410; do
-  other=$(docker ps --filter "publish=$port" --format '{{.Names}} {{.Label "com.docker.compose.project"}}' | awk -v p="$PROJECT" '$2 != p {print $1}' | head -1)
+  other=$(docker ps --filter "publish=$port" --format '{{.Names}} {{.Label "com.docker.compose.project"}}' | awk -v p="$PROJECT" '$2 != p {print $1}' | head -1 || true)
   [ -z "$other" ] || die "port $port is used by container '$other' from another project. Free it or change the ports in deploy/compose.prod.yaml."
-  holder=$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -v docker-proxy | sed -n 's/.*users:(("\([^"]*\)".*/\1/p' | head -1)
+  holder=$(ss -ltnpH "sport = :$port" 2>/dev/null | grep -v docker-proxy | sed -n 's/.*users:(("\([^"]*\)".*/\1/p' | head -1 || true)
   [ -z "$holder" ] || die "port $port is used by '$holder'. Free it or change the ports in deploy/compose.prod.yaml."
 done
 if command -v ufw >/dev/null && ufw status | grep -q 'Status: active'; then
