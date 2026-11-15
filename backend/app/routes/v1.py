@@ -5,10 +5,13 @@ deterministic fallback: same-category in-stock green items, and the engine's rea
 """
 
 import re
+import secrets
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 
+from app.auth import require_role
+from app.clients import read_client
 from app.contract import cart_outcome, cart_version, code_variants, key_nutrients, status_for
 from app.db import connect, connection
 from app.errors import APIError
@@ -58,6 +61,10 @@ def open_visit(conn, raw: str | None):
         raise APIError(401, "SESSION_INVALID", "visit token is not valid") from exc
     if visit["status"] != "active":
         raise APIError(409, "SESSION_INVALID", "visit is not active")
+    return visit, person_for(conn, visit)
+
+
+def person_for(conn, visit):
     # The visit lives up to 3 hours of inactivity, but its floor session had a fixed 30-minute
     # lease that nothing renewed, so shoppers were locked out mid-visit. Using the visit renews it.
     # (A revoked card or disabled user is still expired again by advance() inside active_session.)
@@ -68,10 +75,9 @@ def open_visit(conn, raw: str | None):
         (visit["id"],),
     )
     try:
-        person = active_session(conn, visit["id"])
+        return active_session(conn, visit["id"])
     except APIError as exc:
         raise APIError(409, "SESSION_INVALID", "visit is not active") from exc
-    return visit, person
 
 
 def public_product(row) -> dict:
@@ -484,6 +490,82 @@ def recommendations(request: Request, conn=Depends(connection, scope="function")
         )
     picks.sort(key=lambda item: (item["status"]["level"] != "green", not item["use_soon"]))
     return {"source": "fallback", "items": picks[:12]}
+
+
+CHECKOUT_CODE_MINUTES = 15
+
+
+@router.post("/checkout/code")
+def checkout_code(request: Request, conn=Depends(connection, scope="function")):
+    """The 4-digit code (and its QR) a volunteer uses to load this visit at the exit."""
+    visit, _person = open_visit(conn, request.headers.get("x-visit-token"))
+    conn.execute("DELETE FROM checkout_codes WHERE expires_at<=now()")
+    row = conn.execute(
+        "SELECT code, expires_at FROM checkout_codes WHERE visit_id=%s", (visit["id"],)
+    ).fetchone()
+    # ponytail: 4 digits = 10,000 codes; fine for a few stores of live visits, longer codes past that.
+    for _ in range(50):
+        if row is not None:
+            break
+        row = conn.execute(
+            """INSERT INTO checkout_codes(code, visit_id, expires_at)
+            VALUES (%s, %s, now()+make_interval(mins=>%s))
+            ON CONFLICT (code) DO NOTHING RETURNING code, expires_at""",
+            (f"{secrets.randbelow(10000):04d}", visit["id"], CHECKOUT_CODE_MINUTES),
+        ).fetchone()
+    if row is None:
+        raise APIError(503, "CODE_UNAVAILABLE", "Ask a volunteer to scan your QR")
+    return {
+        "code": row["code"],
+        "qr": f"NEST4AW:CHECKOUT:{row['code']}",
+        "expires_at": row["expires_at"].isoformat(),
+    }
+
+
+@router.get("/staff/checkout/{code}")
+def staff_checkout_lookup(
+    code: str,
+    request: Request,
+    _user=Depends(require_role("warehouse_staff", "admin")),
+    conn=Depends(connection, scope="function"),
+):
+    """Staff: load a shopper by QR or 4-digit code to review their cart before they leave."""
+    digits = re.sub(r"\D", "", code)[-4:]
+    visit = conn.execute(
+        """SELECT v.* FROM checkout_codes k JOIN visits v ON v.id=k.visit_id
+        WHERE k.code=%s AND k.expires_at>now()""",
+        (digits,),
+    ).fetchone()
+    if visit is None or visit["status"] != "active":
+        raise APIError(
+            404, "CODE_NOT_FOUND", "That code is not active. Ask the shopper to refresh it on their phone."
+        )
+    engine = request.app.state.engine
+    person = person_for(conn, visit)
+    client = read_client(conn, visit["client_id"])
+    store = conn.execute("SELECT name FROM stores WHERE id=%s", (visit["store_id"],)).fetchone()
+    cart = cart_payload(conn, engine, person, visit["id"], visit["store_id"])
+    for item in cart["items"]:
+        # Checkout refuses red and unknown items, so flag exactly those for removal.
+        verdict = engine.evaluate(person, product(conn, pid=item["product"]["id"]))["verdict"]
+        item["must_remove"] = verdict in ("red", "unknown")
+    return {
+        "session_id": str(visit["id"]),
+        "code": digits,
+        "store": store["name"] if store else None,
+        "client": {
+            "name": client["legal_name"],
+            "tier_id": client["tier_id"],
+            "household_size": client["household_size"],
+            "dm": client["dm"],
+            "htn": client["htn"],
+            "ckd34": client["ckd34"],
+            "k_limit_ordered": client["k_limit_ordered"],
+            "allergens": list(client["allergens"] or []),
+        },
+        "cart": cart,
+        "can_pass": bool(cart["items"]) and not any(i["must_remove"] for i in cart["items"]),
+    }
 
 
 @router.post("/checkout/{visit_token}/validate")
