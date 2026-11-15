@@ -1,5 +1,6 @@
 "use client";
 
+import { KioskQrScanner } from "@/components/kiosk-qr-scanner";
 import { VerdictBadge } from "@/components/status/verdict-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -18,13 +19,12 @@ import {
   addLine,
   checkout,
   deleteLine,
-  getCart,
-  getSession,
+  lookupCheckoutCode,
   lookupClient,
   reissueCard,
   scan,
-  type CartLine,
   type CheckoutResult,
+  type ExitReview,
   type ScanHit,
   type SessionView,
   type StaffMatch,
@@ -33,7 +33,7 @@ import { ScanLine } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { toast } from "sonner";
 
-function flags(row: SessionView) {
+function flags(row: Pick<SessionView, "dm" | "htn" | "ckd34" | "k_limit_ordered" | "allergens">) {
   return [
     row.dm ? "Diabetes" : null,
     row.htn ? "High blood pressure" : null,
@@ -53,9 +53,11 @@ function reasonLine(hit: ScanHit) {
 }
 
 export default function CheckoutPage() {
-  const [sessionId, setSessionId] = useState("");
-  const [session, setSession] = useState<SessionView | null>(null);
-  const [lines, setLines] = useState<CartLine[]>([]);
+  const [codeInput, setCodeInput] = useState("");
+  const [camera, setCamera] = useState(false);
+  const [review, setReview] = useState<ExitReview | null>(null);
+  const session = review ? { session_id: review.sessionId } : null;
+  const [lines, setLines] = useState<ExitReview["lines"]>([]);
   const [code, setCode] = useState("");
   const [blocked, setBlocked] = useState<ScanHit | null>(null);
   const [refusal, setRefusal] = useState<{ error: string; message: string } | null>(null);
@@ -65,22 +67,30 @@ export default function CheckoutPage() {
   const [found, setFound] = useState<StaffMatch[]>([]);
   const [issued, setIssued] = useState<string | null>(null);
 
-  async function loadSession(e?: FormEvent) {
+  /** Re-read the shopper's cart and what must be removed, straight from the rules engine. */
+  async function refresh(code: string) {
+    const next = await lookupCheckoutCode(code);
+    setReview(next);
+    setLines(next.lines);
+    return next;
+  }
+
+  async function loadSession(e?: FormEvent, value?: string) {
     e?.preventDefault();
-    const id = sessionId.trim();
-    if (!id) return;
+    const code = (value ?? codeInput).trim();
+    if (!code) return;
     setBusy("session");
     setReceipt(null);
     setRefusal(null);
     setBlocked(null);
     try {
-      const [next, cart] = await Promise.all([getSession(id), getCart(id)]);
-      setSession(next);
-      setLines(cart);
+      await refresh(code);
+      setCamera(false);
+      setCodeInput("");
     } catch (err) {
-      setSession(null);
+      setReview(null);
       setLines([]);
-      toast.error(err instanceof Error ? err.message : "Could not load session");
+      toast.error(err instanceof Error ? err.message : "Could not load that code");
     } finally {
       setBusy(null);
     }
@@ -98,7 +108,7 @@ export default function CheckoutPage() {
       const hit = await scan(id, trimmed);
       if ((hit.verdict === "green" || hit.verdict === "yellow") && hit.product?.id) {
         await addLine(id, hit.product.id);
-        setLines(await getCart(id));
+        if (review) await refresh(review.code);
         setCode("");
       } else {
         setBlocked(hit);
@@ -108,7 +118,7 @@ export default function CheckoutPage() {
       if (err instanceof ApiError) {
         setRefusal({ error: err.error, message: err.message });
         try {
-          setLines(await getCart(id));
+          if (review) await refresh(review.code);
         } catch {
           /* keep the cart already on screen */
         }
@@ -126,7 +136,7 @@ export default function CheckoutPage() {
     setBusy("cart");
     try {
       await deleteLine(id, productId);
-      setLines(await getCart(id));
+      if (review) await refresh(review.code);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not remove the line");
     } finally {
@@ -152,7 +162,7 @@ export default function CheckoutPage() {
       if (err instanceof ApiError) {
         setRefusal({ error: err.error, message: err.message });
         try {
-          setLines(await getCart(id));
+          if (review) await refresh(review.code);
         } catch {
           /* leave the cart that was already on screen */
         }
@@ -201,8 +211,8 @@ export default function CheckoutPage() {
     <div className="space-y-6">
       <ol className="grid gap-3 sm:grid-cols-3" aria-label="Checkout steps">
         {[
-          ["1", "Load the visit", "Scan or paste the code on the shopper's phone.", !!session],
-          ["2", "Scan each item", "Red items are stopped and never added.", lines.length > 0],
+          ["1", "Load the shopper", "Scan the QR on their phone or type the 4-digit code.", !!review],
+          ["2", "Review the cart", "Remove anything marked Must remove before they leave.", !!review?.canPass],
           ["3", "Complete checkout", "Stock is updated and a receipt is shown.", !!receipt],
         ].map(([n, title, body, done]) => (
           <li key={String(n)} className={`flex gap-3 rounded-2xl border p-4 ${done ? "border-primary/40 bg-primary/5" : "bg-card"}`}>
@@ -252,30 +262,46 @@ export default function CheckoutPage() {
       <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
         <Card className="h-fit rounded-2xl">
           <CardHeader>
-            <CardTitle className="text-xl">Shopper visit</CardTitle>
-            <CardDescription>Names are never shown here, only the diet plan.</CardDescription>
+            <CardTitle className="text-xl">Shopper</CardTitle>
+            <CardDescription>Scan the QR on the shopper&apos;s phone, or type the 4-digit code under it.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <form className="space-y-2" onSubmit={loadSession}>
-              <Label htmlFor="session-id">Visit code</Label>
+              <Label htmlFor="checkout-code">Checkout code</Label>
               <Input
-                id="session-id"
-                value={sessionId}
-                onChange={(e) => setSessionId(e.target.value)}
-                className="h-12 rounded-xl font-mono text-sm"
+                id="checkout-code"
+                value={codeInput}
+                onChange={(e) => setCodeInput(e.target.value)}
+                placeholder="e.g. 4821"
+                inputMode="numeric"
+                className="h-14 rounded-xl text-center font-mono text-3xl tracking-[0.4em]"
                 autoComplete="off"
+                autoFocus
               />
-              <Button type="submit" className="h-12 w-full rounded-xl text-base" disabled={busy === "session"}>
-                {busy === "session" ? "Loading…" : "Load visit"}
+              <Button type="submit" className="h-12 w-full rounded-xl text-base" disabled={busy === "session" || !codeInput.trim()}>
+                {busy === "session" ? "Loading…" : "Load shopper"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-12 w-full rounded-xl text-base"
+                onClick={() => setCamera((on) => !on)}
+              >
+                <ScanLine className="size-5" />
+                {camera ? "Close camera" : "Scan QR with camera"}
               </Button>
             </form>
-            {session ? (
+            {camera ? (
+              <KioskQrScanner active={busy !== "session"} onScan={(value) => loadSession(undefined, value)} />
+            ) : null}
+            {review ? (
               <div className="space-y-2 text-base">
-                <Badge className="rounded-full text-base">Diet tier {session.tier_id}</Badge>
-                <p>Household of {session.household_size}</p>
-                <p className="capitalize text-muted-foreground">Visit {session.status}</p>
+                <p className="text-2xl font-bold">{review.client.name}</p>
+                <Badge className="rounded-full text-base">Diet tier {review.client.tier_id}</Badge>
+                <p>Household of {review.client.household_size}</p>
+                {review.store ? <p className="text-muted-foreground">{review.store} · code {review.code}</p> : null}
                 <div className="flex flex-wrap gap-1.5">
-                  {flags(session).map((chip) => (
+                  {flags(review.client).map((chip) => (
                     <Badge key={chip} variant="outline" className="rounded-full">
                       {chip}
                     </Badge>
@@ -291,8 +317,9 @@ export default function CheckoutPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-xl">
                 <ScanLine className="size-5" />
-                Scan
+                Scan an extra item (optional)
               </CardTitle>
+              <CardDescription>For something the shopper is carrying that is not in their app cart.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <form className="flex gap-2" onSubmit={onScan}>
@@ -346,18 +373,18 @@ export default function CheckoutPage() {
             <CardContent className="space-y-3">
               {lines.length === 0 ? (
                 <p className="rounded-xl border border-dashed py-8 text-center text-muted-foreground">
-                  {session ? "Scan the first item to start." : "Load a visit to begin."}
+                  {review ? "The shopper's cart is empty." : "Load a shopper to see their cart."}
                 </p>
               ) : (
                 <ul className="divide-y rounded-xl border">
                   {lines.map((line) => (
-                    <li key={line.product_id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                    <li key={line.product_id} className={`flex flex-wrap items-center justify-between gap-3 px-4 py-3 ${line.mustRemove ? "bg-destructive/5" : ""}`}>
                       <div>
                         <p className="text-lg font-medium">
                           {line.name} <span className="text-muted-foreground">×{line.qty}</span>
                         </p>
-                        <p className="text-sm text-muted-foreground">
-                          {[line.aisle, line.shelf, line.bin_code].filter(Boolean).join(" · ") || "—"}
+                        <p className={`text-sm ${line.mustRemove ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
+                          {line.mustRemove ? `Must remove · ${line.reason || "not on this shopper's plan"}` : line.reason}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -370,9 +397,23 @@ export default function CheckoutPage() {
                   ))}
                 </ul>
               )}
+              {review && !review.canPass && lines.length > 0 ? (
+                <Alert variant="destructive">
+                  <AlertTitle>Not ready to pass</AlertTitle>
+                  <AlertDescription>
+                    Remove the items marked Must remove. The shopper can only leave with what their plan allows.
+                  </AlertDescription>
+                </Alert>
+              ) : null}
+              {review?.canPass && !receipt ? (
+                <Alert>
+                  <AlertTitle>Everything fits this shopper&apos;s plan</AlertTitle>
+                  <AlertDescription>Check the bag matches the list, then complete checkout.</AlertDescription>
+                </Alert>
+              ) : null}
               <Button
                 className="h-12 rounded-xl text-base"
-                disabled={!session || lines.length === 0 || !!busy || !!receipt}
+                disabled={!review?.canPass || !!busy || !!receipt}
                 onClick={finish}
               >
                 {busy === "checkout" ? "Checking out…" : "Complete checkout"}

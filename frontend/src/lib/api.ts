@@ -538,6 +538,66 @@ function ledgerLines(row: unknown): CheckoutResult["lines"] {
   }));
 }
 
+export type ExitReview = {
+  sessionId: string;
+  code: string;
+  store: string | null;
+  client: {
+    name: string;
+    tier_id: string;
+    household_size: number;
+    dm: boolean;
+    htn: boolean;
+    ckd34: boolean;
+    k_limit_ordered: boolean;
+    allergens: string[];
+  };
+  lines: (CartLine & { mustRemove: boolean; reason: string })[];
+  canPass: boolean;
+};
+
+/** Staff: load a shopper at the exit by their QR payload or 4-digit checkout code. */
+export async function lookupCheckoutCode(code: string): Promise<ExitReview> {
+  const row = await apiV1<Record<string, unknown>>(`/staff/checkout/${encodeURIComponent(code.trim())}`);
+  const client = isRecord(row.client) ? row.client : {};
+  const cart = isRecord(row.cart) ? row.cart : {};
+  const items = Array.isArray(cart.items) ? cart.items.filter(isRecord) : [];
+  return {
+    sessionId: String(row.session_id ?? ""),
+    code: String(row.code ?? ""),
+    store: typeof row.store === "string" ? row.store : null,
+    client: {
+      name: String(client.name ?? ""),
+      tier_id: String(client.tier_id ?? ""),
+      household_size: Number(client.household_size ?? 1),
+      dm: Boolean(client.dm),
+      htn: Boolean(client.htn),
+      ckd34: Boolean(client.ckd34),
+      k_limit_ordered: Boolean(client.k_limit_ordered),
+      allergens: Array.isArray(client.allergens) ? client.allergens.map(String) : [],
+    },
+    lines: items.map((item) => {
+      const product = isRecord(item.product) ? item.product : {};
+      const status = isRecord(item.status) ? item.status : {};
+      const level = asVerdict(status.level);
+      const mustRemove = Boolean(item.must_remove);
+      return {
+        product_id: String(product.id ?? ""),
+        name: String(product.name ?? "Item"),
+        qty: Number(item.qty ?? 1),
+        verdict: mustRemove ? (level === "red" ? "red" : "unknown") : level,
+        sodium_mg: typeof product.sodium_mg === "number" ? product.sodium_mg : null,
+        aisle: null,
+        shelf: null,
+        bin_code: null,
+        mustRemove,
+        reason: String(status.label ?? ""),
+      };
+    }),
+    canPass: Boolean(row.can_pass),
+  };
+}
+
 export async function checkout(sessionId: string): Promise<CheckoutResult> {
   const row = await api<unknown>("/checkout", {
     method: "POST",

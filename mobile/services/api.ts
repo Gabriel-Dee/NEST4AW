@@ -948,6 +948,12 @@ export async function getAvailability(productId: string): Promise<Availability> 
   };
 }
 
+/** 4-digit checkout code + QR payload for the volunteer at the exit (expires in ~15 min). */
+export async function getCheckoutCode(): Promise<{ code: string; qr: string; expiresAt: string }> {
+  const row = await call<Record<string, unknown>>('/checkout/code', { method: 'POST' });
+  return { code: String(row.code ?? ''), qr: String(row.qr ?? ''), expiresAt: String(row.expires_at ?? '') };
+}
+
 export async function removeFromCart(productId: string) {
   await call(`/cart/items/${productId}`, { method: 'DELETE' });
 }
